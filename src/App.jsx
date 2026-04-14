@@ -1,0 +1,3676 @@
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+
+// ─── BREAKPOINTS ──────────────────────────────────────────────────────────────
+const BP = { mobile: 0, tablet: 768, desktop: 1024, wide: 1280 };
+function useWindowSize() {
+  const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => {
+    const handler = () => setSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return size;
+}
+
+// ─── TOKENS ───────────────────────────────────────────────────────────────────
+const C = {
+  bg:"#080A0F", surface:"#0D1017", card:"#111520", cardHi:"#171C2B",
+  border:"#1A1F35", accent:"#6EE7B7", accentDim:"#6EE7B712",
+  amber:"#FCD34D", amberDim:"#FCD34D12", red:"#F87171", redDim:"#F8717112",
+  blue:"#60A5FA", blueDim:"#60A5FA12", green:"#34D399", greenDim:"#34D39912",
+  purple:"#A78BFA", purpleDim:"#A78BFA12", gold:"#F59E0B", goldDim:"#F59E0B12",
+  txt:"#E8EAF6", txtSub:"#6B7299", txtMuted:"#3A3F5C",
+};
+
+// ─── TRADE SYSTEM ─────────────────────────────────────────────────────────────
+const TRADES = {
+  Electrical:{color:"#FBBF24",dim:"#FBBF2420",icon:"⚡"},
+  Plumbing:{color:"#38BDF8",dim:"#38BDF820",icon:"🔧"},
+  HVAC:{color:"#A78BFA",dim:"#A78BFA20",icon:"❄️"},
+  Framing:{color:"#FB923C",dim:"#FB923C20",icon:"🪵"},
+  Roofing:{color:"#F87171",dim:"#F8717120",icon:"🏠"},
+  Drywall:{color:"#94A3B8",dim:"#94A3B820",icon:"🧱"},
+  Concrete:{color:"#A8A29E",dim:"#A8A29E20",icon:"⬜"},
+  Painting:{color:"#FB7185",dim:"#FB718520",icon:"🎨"},
+  Flooring:{color:"#34D399",dim:"#34D39920",icon:"🪵"},
+  Masonry:{color:"#F97316",dim:"#F9731620",icon:"🧱"},
+};
+const getTrade = (n) => TRADES[n] || {color:"#6B7280",dim:"#6B728020",icon:"🔨"};
+
+// ─── TIER SYSTEM ──────────────────────────────────────────────────────────────
+const TIER_DEFS = {
+  Apprentice:{icon:"🪨",color:"#94A3B8",xpMin:0,xpMax:8000},
+  Journeyman:{icon:"🔩",color:"#60A5FA",xpMin:8000,xpMax:20000},
+  Certified:{icon:"⚙️",color:"#A78BFA",xpMin:20000,xpMax:45000},
+  Master:{icon:"🏆",color:"#F59E0B",xpMin:45000,xpMax:90000},
+  Elite:{icon:"⭐",color:"#6EE7B7",xpMin:90000,xpMax:Infinity},
+};
+const getTier = (xp) => {
+  for (const [k,t] of Object.entries(TIER_DEFS)) {
+    if (xp >= t.xpMin && xp < t.xpMax) return {key:k,...t};
+  }
+  return {key:"Elite",...TIER_DEFS.Elite};
+};
+
+// ─── LICENSE TYPES ────────────────────────────────────────────────────────────
+const LIC = {
+  CGC:{label:"Certified General Contractor",abbr:"CGC",icon:"🏗️",color:"#F59E0B",dim:"#F59E0B20",
+    scope:"Unlimited — residential, commercial, industrial, any height",
+    types:["1–3 Family Residential","Multi-Family (4+ Units)","Commercial","Industrial","Mixed-Use","High-Rise (4+ Stories)"],
+    bond:"$20,000 minimum"},
+  CRC:{label:"Certified Residential Contractor",abbr:"CRC",icon:"🏠",color:"#34D399",dim:"#34D39920",
+    scope:"Residential only — 1–3 family homes, max 2 habitable stories",
+    types:["1–3 Family Residential","Residential Renovation / Remodel","Accessory Dwelling Unit (ADU)"],
+    restrictions:["No commercial construction","Max 2 habitable stories","1–3 family residential only"],
+    bond:"$10,000 minimum"},
+};
+
+// ─── DATA ─────────────────────────────────────────────────────────────────────
+const PROJECTS = [
+  {id:1,name:"Riverside Office Complex",type:"Commercial",loc:"Denver, CO",budget:"$2.4M",status:"Active",trades:["Electrical","Plumbing","HVAC"],openings:3,applicants:12,progress:35},
+  {id:2,name:"Maple Heights Residential",type:"1–3 Family Residential",loc:"Aurora, CO",budget:"$850K",status:"Hiring",trades:["Framing","Roofing","Drywall"],openings:5,applicants:8,progress:0},
+  {id:3,name:"Downtown Retail Reno",type:"Commercial",loc:"Boulder, CO",budget:"$320K",status:"Active",trades:["Electrical","Flooring"],openings:1,applicants:4,progress:62},
+  {id:4,name:"Westfield Industrial",type:"Industrial",loc:"Lakewood, CO",budget:"$5.1M",status:"Draft",trades:["Concrete","Masonry","HVAC"],openings:8,applicants:0,progress:0},
+];
+const OPENINGS = [
+  {id:1,project:"Riverside Office Complex",type:"Commercial",trade:"Electrical",role:"Master Electrician",rate:"$85–105/hr",duration:"7 mo",urgency:"High",applicants:5},
+  {id:2,project:"Riverside Office Complex",type:"Commercial",trade:"Plumbing",role:"Lead Plumber",rate:"$75–90/hr",duration:"5 mo",urgency:"Medium",applicants:3},
+  {id:3,project:"Maple Heights Residential",type:"1–3 Family Residential",trade:"Framing",role:"Framing Crew Lead",rate:"$65–80/hr",duration:"8 mo",urgency:"High",applicants:2},
+  {id:4,project:"Maple Heights Residential",type:"1–3 Family Residential",trade:"Roofing",role:"Roofing Sub",rate:"$60–75/hr",duration:"3 mo",urgency:"Medium",applicants:1},
+  {id:5,project:"Downtown Retail Reno",type:"Commercial",trade:"Electrical",role:"Commercial Electrician",rate:"$80–95/hr",duration:"4 mo",urgency:"High",applicants:4},
+];
+const APPLICANTS = [
+  {id:1,name:"Garcia Electric LLC",contact:"M. Garcia",trade:"Electrical",rating:4.8,jobs:34,status:"Review",avail:"May 10",xp:38400},
+  {id:2,name:"Ironwood Framing Co.",contact:"D. Okafor",trade:"Framing",rating:4.7,jobs:29,status:"Shortlisted",avail:"Jun 1",xp:22800},
+  {id:3,name:"Summit Pipe Co.",contact:"M. Bell",trade:"Plumbing",rating:4.4,jobs:18,status:"Review",avail:"May 20",xp:14200},
+  {id:4,name:"AirFlow Mech LLC",contact:"T. Herrera",trade:"HVAC",rating:4.2,jobs:11,status:"Review",avail:"Jun 10",xp:5600},
+];
+const CONTACTS = [
+  {id:"c1",name:"Marcus Reyes",trade:"Electrical",tier:"Certified",avatar:"⚡",online:true,lastSeen:"now",unread:2},
+  {id:"c2",name:"Diana Okafor",trade:"Framing",tier:"Journeyman",avatar:"🪵",online:false,lastSeen:"2h ago",unread:0},
+  {id:"c3",name:"Summit Pipe Co.",trade:"Plumbing",tier:"Journeyman",avatar:"🔧",online:false,lastSeen:"Yesterday",unread:1},
+  {id:"c4",name:"Tony Herrera",trade:"HVAC",tier:"Apprentice",avatar:"❄️",online:true,lastSeen:"now",unread:0},
+];
+const INIT_THREADS = {
+  c1:[
+    {id:1,from:"c1",type:"system",text:"Conversation started — Riverside Office Complex",time:"Mon 9am"},
+    {id:2,from:"c1",type:"text",text:"Hi! Saw the Master Electrician posting — very interested. I've done two similar commercial buildouts.",time:"Mon 9:02am"},
+    {id:3,from:"me",type:"text",text:"Hey Marcus! Your Westfield work looks great. 18k sq ft buildout — full panel, lighting, EV charging. You'd lead a crew of 4.",time:"Mon 9:15am"},
+    {id:4,from:"c1",type:"text",text:"Right in my wheelhouse. Level 2 or DC fast charge for the EV stations?",time:"Today 8:14am"},
+  ],
+  c2:[
+    {id:1,from:"c2",type:"system",text:"Conversation started — Maple Heights · Framing Crew Lead",time:"Wed 2pm"},
+    {id:2,from:"me",type:"text",text:"Hi Diana, hiring a framing lead for Maple Heights. 8-unit residential, June 1 start.",time:"Wed 2:01pm"},
+    {id:3,from:"c2",type:"text",text:"Thanks! What's the framing scope?",time:"Wed 2:10pm"},
+  ],
+  c3:[
+    {id:1,from:"c3",type:"system",text:"Message request — Summit Pipe Co. wants to connect",time:"Thu 11am"},
+    {id:2,from:"c3",type:"text",text:"Hi, saw you have a plumbing opening. Specialize in commercial rough-in, 18 years in business.",time:"Thu 11:02am"},
+  ],
+  c4:[],
+};
+const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DSHORT=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const TODAY=new Date(2026,3,13);
+const dkey=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+const isPast=(y,m,d)=>new Date(y,m,d)<new Date(TODAY.getFullYear(),TODAY.getMonth(),TODAY.getDate());
+const AVAIL={
+  "2026-04-14":"available","2026-04-15":"available","2026-04-16":"available","2026-04-17":"available",
+  "2026-04-20":"available","2026-04-21":"booked","2026-04-22":"booked","2026-04-23":"booked",
+  "2026-04-27":"available","2026-04-28":"available","2026-04-29":"available","2026-04-30":"available",
+  "2026-05-04":"available","2026-05-05":"available","2026-05-06":"available","2026-05-07":"available",
+  "2026-05-08":"available","2026-05-11":"tentative","2026-05-12":"tentative","2026-05-13":"available",
+};
+const DSTATUS={
+  available:{bg:"#34D39925",border:"#34D39960",dot:"#34D399",label:"Available"},
+  booked:{bg:"#F8717125",border:"#F8717160",dot:"#F87171",label:"Booked"},
+  tentative:{bg:"#FCD34D25",border:"#FCD34D60",dot:"#FCD34D",label:"Tentative"},
+  blocked:{bg:"#3A3F5C30",border:"#3A3F5C60",dot:"#3A3F5C",label:"Blocked"},
+  request_pending:{bg:"#60A5FA25",border:"#60A5FA60",dot:"#60A5FA",label:"Pending"},
+  request_confirmed:{bg:"#6EE7B725",border:"#6EE7B760",dot:"#6EE7B7",label:"Confirmed"},
+};
+
+// ─── PRIMITIVES ───────────────────────────────────────────────────────────────
+function Pill({trade,size}){
+  const t=getTrade(trade),sm=size!=="md";
+  return <span style={{display:"inline-flex",alignItems:"center",gap:4,background:t.dim,color:t.color,
+    border:`1px solid ${t.color}30`,padding:sm?"3px 9px":"5px 12px",
+    borderRadius:20,fontSize:sm?11:13,fontWeight:700,whiteSpace:"nowrap"}}>{t.icon} {trade}</span>;
+}
+function TBadge({xp,size}){
+  const t=getTier(xp),sm=size!=="md";
+  return <span style={{display:"inline-flex",alignItems:"center",gap:4,background:t.color+"15",
+    color:t.color,border:`1px solid ${t.color}40`,padding:sm?"3px 9px":"5px 13px",
+    borderRadius:20,fontSize:sm?11:13,fontWeight:800,whiteSpace:"nowrap"}}>{t.icon} {t.key}</span>;
+}
+function SBadge({status}){
+  const m={Active:[C.green,C.greenDim],Hiring:[C.amber,C.amberDim],Draft:[C.txtSub,C.border],
+    pending:[C.amber,C.amberDim],needs_info:[C.blue,C.blueDim],approved:[C.accent,C.accentDim],
+    rejected:[C.red,C.redDim],Review:[C.blue,C.blueDim],Shortlisted:[C.amber,C.amberDim],
+    High:[C.red,C.redDim],Medium:[C.amber,C.amberDim],Low:[C.green,C.greenDim]};
+  const[c,bg]=m[status]||[C.amber,C.amberDim];
+  return <span style={{background:bg,color:c,padding:"4px 12px",borderRadius:20,
+    fontSize:12,fontWeight:700,textTransform:"capitalize",whiteSpace:"nowrap"}}>{status}</span>;
+}
+function SC({icon,label,value,color,sub}){
+  return <div style={{background:C.card,border:`1.5px solid ${color}30`,borderRadius:14,
+    padding:"14px",display:"flex",alignItems:"center",gap:12}}>
+    <div style={{width:44,height:44,borderRadius:12,background:color+"18",border:`1px solid ${color}40`,
+      display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{icon}</div>
+    <div>
+      <div style={{fontSize:26,fontWeight:800,color,fontFamily:"'IBM Plex Mono',monospace",lineHeight:1}}>{value}</div>
+      <div style={{fontSize:12,color:C.txtSub,fontWeight:600,marginTop:3}}>{label}</div>
+      {sub&&<div style={{fontSize:11,color:C.txtSub,marginTop:1}}>{sub}</div>}
+    </div>
+  </div>;
+}
+function TW({trade,value,sub}){
+  const t=getTrade(trade);
+  return <div style={{background:C.card,border:`1.5px solid ${t.color}35`,borderRadius:14,
+    padding:"14px 10px",display:"flex",flexDirection:"column",alignItems:"center",gap:6,textAlign:"center"}}>
+    <div style={{width:40,height:40,borderRadius:11,background:t.dim,border:`1px solid ${t.color}40`,
+      display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{t.icon}</div>
+    <div style={{fontSize:24,fontWeight:800,color:t.color,fontFamily:"'IBM Plex Mono',monospace",lineHeight:1}}>{value}</div>
+    <div style={{fontSize:11,color:C.txtSub,fontWeight:600}}>{trade}</div>
+    {sub&&<div style={{fontSize:10,color:C.txtSub}}>{sub}</div>}
+  </div>;
+}
+function PBar({value,color}){
+  return <div style={{background:C.border,borderRadius:4,height:6}}>
+    <div style={{width:`${value}%`,background:color||C.accent,height:6,borderRadius:4}}/>
+  </div>;
+}
+function Btn({children,onClick,v,full,sm,disabled}){
+  const vt=v||"ghost";
+  const vs={
+    primary:{bg:C.accent,color:"#000",border:"none"},
+    ghost:{bg:C.cardHi,color:C.txtSub,border:`1px solid ${C.border}`},
+    approve:{bg:C.accentDim,color:C.accent,border:`1px solid ${C.accent}40`},
+    reject:{bg:C.redDim,color:C.red,border:`1px solid ${C.red}40`},
+    info:{bg:C.blueDim,color:C.blue,border:`1px solid ${C.blue}40`},
+    amber:{bg:C.amberDim,color:C.amber,border:`1px solid ${C.amber}40`},
+    gold:{bg:C.goldDim,color:C.gold,border:`1px solid ${C.gold}50`},
+    blue:{bg:C.blueDim,color:C.blue,border:`1px solid ${C.blue}50`},
+  };
+  const s=vs[disabled?"ghost":vt]||vs.ghost;
+  return <button onClick={disabled?undefined:onClick}
+    style={{...s,borderRadius:11,fontWeight:700,cursor:disabled?"not-allowed":"pointer",
+      opacity:disabled?0.4:1,fontFamily:"'IBM Plex Sans',sans-serif",
+      WebkitTapHighlightColor:"transparent",width:full?"100%":undefined,
+      textAlign:"center",padding:sm?"9px 14px":"13px 18px",fontSize:sm?13:15}}>
+    {children}
+  </button>;
+}
+function DH({onBack,title,sub,right}){
+  return <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",
+    background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+    <button onClick={onBack} style={{width:44,height:44,borderRadius:12,background:C.card,
+      border:`1px solid ${C.border}`,color:C.txt,fontSize:20,cursor:"pointer",
+      display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+      WebkitTapHighlightColor:"transparent"}}>←</button>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontWeight:800,fontSize:17,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
+      {sub&&<div style={{fontSize:12,color:C.txtSub,marginTop:2}}>{sub}</div>}
+    </div>
+    {right}
+  </div>;
+}
+function SH({title,action,onAction,color}){
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+    <div style={{fontSize:17,fontWeight:800}}>{title}</div>
+    {action&&<button onClick={onAction} style={{background:color||C.accent,color:"#000",border:"none",
+      borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:13,cursor:"pointer",
+      fontFamily:"'IBM Plex Sans',sans-serif"}}>{action}</button>}
+  </div>;
+}
+function IC({label,value,color}){
+  return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 13px"}}>
+    <div style={{fontSize:11,color:C.txtSub,marginBottom:3}}>{label}</div>
+    <div style={{fontSize:13,fontWeight:700,color:color||C.txt}}>{value}</div>
+  </div>;
+}
+function TFRow({trades,active,onChange}){
+  return <div style={{display:"flex",gap:8,overflowX:"auto",WebkitOverflowScrolling:"touch",marginBottom:16,paddingBottom:4}}>
+    {["All",...trades].map(t=>{
+      const td=t==="All"?null:getTrade(t);const on=active===t;
+      return <button key={t} onClick={()=>onChange(t)}
+        style={{display:"inline-flex",alignItems:"center",gap:5,flexShrink:0,
+          background:on?(td?td.dim:C.accentDim):C.card,color:on?(td?td.color:C.accent):C.txtSub,
+          border:`1.5px solid ${on?(td?td.color+"60":C.accent+"60"):C.border}`,
+          borderRadius:20,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer",
+          fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
+        {td&&<span>{td.icon}</span>}{t}
+      </button>;
+    })}
+  </div>;
+}
+function Toast({t}){
+  if(!t)return null;
+  return <div style={{position:"fixed",top:68,left:"50%",transform:"translateX(-50%)",
+    background:C.card,border:`1.5px solid ${t.color}60`,borderRadius:12,padding:"11px 20px",
+    fontSize:14,fontWeight:700,color:t.color,zIndex:500,boxShadow:"0 8px 32px #00000070",
+    whiteSpace:"nowrap",pointerEvents:"none"}}>{t.msg}</div>;
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function DashPage({lic,setPage,plan,requirePlan}){
+  const lt=LIC[lic];
+  const mp=PROJECTS.filter(p=>lt.types.includes(p.type));
+  const tc=OPENINGS.filter(o=>lt.types.includes(o.type)).reduce((a,o)=>({...a,[o.trade]:(a[o.trade]||0)+1}),{});
+  return <div style={{padding:"20px 18px 110px"}}>
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:22,fontWeight:800,marginBottom:4}}>Good morning 👷</div>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <div style={{fontSize:14,color:C.txtSub}}>Apex Build Co.</div>
+        <span style={{background:lt.dim,color:lt.color,border:`1px solid ${lt.color}40`,
+          borderRadius:20,padding:"3px 9px",fontSize:11,fontWeight:800}}>{lt.icon} {lt.abbr}</span>
+        <span style={{background:C.blueDim,color:C.blue,border:`1px solid ${C.blue}30`,
+          borderRadius:20,padding:"3px 9px",fontSize:11,fontWeight:700}}>Builder Plan</span>
+      </div>
+    </div>
+    {lic==="CRC"&&<div style={{background:C.greenDim,border:`1px solid ${C.green}30`,borderRadius:12,
+      padding:"10px 14px",marginBottom:16,display:"flex",gap:8,alignItems:"center"}}>
+      <span>🏠</span><span style={{fontSize:13,color:C.green,fontWeight:600}}>CRC — residential projects only</span>
+    </div>}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:22}}>
+      <SC icon={lt.icon} label="Active Projects" value={mp.filter(p=>p.status==="Active").length} color={lt.color}/>
+      <SC icon="📋" label="Open Positions" value={OPENINGS.filter(o=>lt.types.includes(o.type)).length} color={C.blue}/>
+      <SC icon="👷" label="Applicants" value="24" color={C.amber} sub="awaiting review"/>
+      <SC icon="✓" label="Hired YTD" value="41" color={C.green} sub="8 projects"/>
+    </div>
+    {Object.keys(tc).length>0&&<>
+      <SH title="Open Positions by Trade"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:22}}>
+        {Object.entries(tc).map(([trade,count])=><TW key={trade} trade={trade} value={count} sub={count===1?"opening":"openings"}/>)}
+      </div>
+    </>}
+    {/* Starter plan upsell */}
+  {plan==="starter"&&<div style={{background:C.blueDim,border:`1.5px solid ${C.blue}40`,borderRadius:14,padding:"16px 18px",marginBottom:22,display:"flex",gap:14,alignItems:"center"}}>
+    <span style={{fontSize:26}}>🔒</span>
+    <div style={{flex:1}}>
+      <div style={{fontWeight:800,fontSize:14,color:C.blue,marginBottom:3}}>Unlock the full platform</div>
+      <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6}}>Full sub profiles, auto license alerts, re-hire suggestions, and saved rosters are available on Builder.</div>
+    </div>
+    <button onClick={()=>setPage("pricing")} style={{background:C.blue,color:"#000",border:"none",borderRadius:9,padding:"9px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>Upgrade →</button>
+  </div>}
+  <SH title="My Projects" action="+ New" onAction={()=>setPage("projects")} color={lt.color}/>
+    {mp.map(p=><div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px",marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+        <div style={{flex:1,marginRight:10}}>
+          <div style={{fontWeight:800,fontSize:15}}>{p.name}</div>
+          <div style={{fontSize:12,color:C.txtSub,marginTop:2}}>📍 {p.loc} · {p.budget}</div>
+        </div>
+        <SBadge status={p.status}/>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:p.progress>0?10:0}}>
+        {p.trades.map(t=><Pill key={t} trade={t}/>)}
+      </div>
+      {p.progress>0&&<PBar value={p.progress}/>}
+    </div>)}
+  </div>;
+}
+
+// ─── PROJECTS ─────────────────────────────────────────────────────────────────
+function ProjPage({lic}){
+  const lt=LIC[lic];
+  const mp=PROJECTS.filter(p=>lt.types.includes(p.type));
+  const[detail,setDetail]=useState(null);
+  if(detail) return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <DH onBack={()=>setDetail(null)} title={detail.name} sub={`📍 ${detail.loc} · ${detail.budget}`} right={<SBadge status={detail.status}/>}/>
+    <div style={{flex:1,overflowY:"auto",padding:"18px 18px 110px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+        <IC label="Budget" value={detail.budget} color={C.accent}/><IC label="Openings" value={detail.openings}/>
+        <IC label="Applicants" value={detail.applicants}/><IC label="Status" value={detail.status}/>
+      </div>
+      <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Trades</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>{detail.trades.map(t=><Pill key={t} trade={t} size="md"/>)}</div>
+      {detail.progress>0&&<div style={{marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+          <span style={{fontSize:13,color:C.txtSub}}>Progress</span>
+          <span style={{fontSize:13,fontWeight:700,color:C.accent}}>{detail.progress}%</span>
+        </div>
+        <PBar value={detail.progress}/>
+      </div>}
+      <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Open Positions</div>
+      {OPENINGS.filter(o=>o.project===detail.name).map(o=>{
+        const t=getTrade(o.trade);
+        return <div key={o.id} style={{background:C.surface,border:`1.5px solid ${t.color}30`,borderRadius:12,padding:"13px 14px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><Pill trade={o.trade}/><SBadge status={o.urgency}/></div>
+          <div style={{fontWeight:700,fontSize:15}}>{o.role}</div>
+          <div style={{display:"flex",gap:12,marginTop:6}}>
+            <span style={{fontSize:13,color:C.accent,fontWeight:700}}>{o.rate}</span>
+            <span style={{fontSize:13,color:C.txtSub}}>{o.duration}</span>
+          </div>
+        </div>;
+      })}
+    </div>
+    <div style={{padding:"14px 18px 28px",background:C.surface,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <Btn v="ghost" sm>Edit</Btn><Btn v="primary" sm>+ Opening</Btn>
+    </div>
+  </div>;
+  return <div style={{padding:"20px 18px 110px"}}>
+    <SH title="Projects" action="+ New" color={lt.color}/>
+    {lic==="CRC"&&<div style={{background:C.greenDim,border:`1px solid ${C.green}30`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,color:C.green,fontWeight:600}}>🏠 Residential scope only</div>}
+    {mp.map(p=><div key={p.id} onClick={()=>setDetail(p)}
+      style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px",marginBottom:10,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}
+      onTouchStart={e=>{e.currentTarget.style.background=C.cardHi;}} onTouchEnd={e=>{e.currentTarget.style.background=C.card;}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+        <div style={{flex:1,marginRight:10}}>
+          <div style={{fontWeight:800,fontSize:16}}>{p.name}</div>
+          <div style={{fontSize:12,color:C.txtSub,marginTop:2}}>📍 {p.loc} · {p.budget}</div>
+        </div>
+        <SBadge status={p.status}/>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:p.progress>0?10:0}}>{p.trades.map(t=><Pill key={t} trade={t}/>)}</div>
+      {p.progress>0&&<PBar value={p.progress}/>}
+    </div>)}
+  </div>;
+}
+
+// ─── OPENINGS ─────────────────────────────────────────────────────────────────
+function OpenPage({lic}){
+  const lt=LIC[lic];
+  const mo=OPENINGS.filter(o=>lt.types.includes(o.type));
+  const[tf,setTF]=useState("All");
+  const trades=[...new Set(mo.map(o=>o.trade))];
+  const list=tf==="All"?mo:mo.filter(o=>o.trade===tf);
+  return <div style={{padding:"20px 18px 110px"}}>
+    <SH title="Open Positions" action="+ Post" color={lt.color}/>
+    <TFRow trades={trades} active={tf} onChange={setTF}/>
+    {list.map(o=>{
+      const t=getTrade(o.trade);
+      return <div key={o.id} style={{background:C.card,border:`1.5px solid ${t.color}30`,borderRadius:14,padding:"16px",marginBottom:12,position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:t.color}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><Pill trade={o.trade}/><SBadge status={o.urgency}/></div>
+        <div style={{fontWeight:800,fontSize:16,marginBottom:2}}>{o.role}</div>
+        <div style={{fontSize:13,color:C.txtSub,marginBottom:12}}>{o.project}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          {[["💰",o.rate],["📅",o.duration],["👤",o.applicants+" applied"]].map(([ic,v])=>(
+            <div key={ic} style={{background:C.surface,borderRadius:8,padding:"8px 10px"}}>
+              <div style={{fontSize:11,color:C.txtSub}}>{ic}</div>
+              <div style={{fontSize:13,fontWeight:700,marginTop:2}}>{v}</div>
+            </div>
+          ))}
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+// ─── APPLICANTS ───────────────────────────────────────────────────────────────
+function AppPage({plan,requirePlan}){
+  const[tf,setTF]=useState("All");
+  const[det,setDet]=useState(null);
+  const trades=[...new Set(APPLICANTS.map(a=>a.trade))];
+  const list=tf==="All"?APPLICANTS:APPLICANTS.filter(a=>a.trade===tf);
+  if(det){
+    const t=getTrade(det.trade);
+    return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <DH onBack={()=>setDet(null)} title={det.name} sub={det.contact} right={<Pill trade={det.trade}/>}/>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 18px 130px"}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
+          <div style={{width:68,height:68,borderRadius:16,background:t.dim,border:`2px solid ${t.color}40`,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:32}}>{t.icon}</div>
+        </div>
+        <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:16}}><TBadge xp={det.xp} size="md"/><SBadge status={det.status}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          <IC label="⭐ Rating" value={det.rating} color={C.amber}/>
+          <IC label="✅ Jobs" value={det.jobs}/>
+          <IC label="📅 Available" value={det.avail} color={C.green}/>
+          <IC label="🔧 Trade" value={det.trade}/>
+        </div>
+        <div style={{background:C.greenDim,border:`1px solid ${C.green}30`,borderRadius:10,padding:"10px 14px",display:"flex",gap:8,alignItems:"center"}}>
+          <span>✅</span><span style={{fontSize:13,color:C.green,fontWeight:600}}>Licensed & Bonded · Verified</span>
+        </div>
+      </div>
+      <div style={{padding:"13px 18px 28px",background:C.surface,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Btn v="ghost" sm>💬 Message</Btn><Btn v="approve" sm>✓ Shortlist</Btn>
+        <Btn v="info" sm>📅 Interview</Btn><Btn v="reject" sm>✕ Decline</Btn>
+      </div>
+    </div>;
+  }
+  return <div style={{padding:"20px 18px 110px"}}>
+    <SH title="Applicants"/>
+    <TFRow trades={trades} active={tf} onChange={setTF}/>
+    {list.map(a=>{
+      const t=getTrade(a.trade);
+      return <div key={a.id} onClick={()=>setDet(a)}
+        style={{background:C.card,border:`1.5px solid ${t.color}25`,borderRadius:14,padding:"14px 16px",marginBottom:10,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}
+        onTouchStart={e=>{e.currentTarget.style.background=C.cardHi;}} onTouchEnd={e=>{e.currentTarget.style.background=C.card;}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+          <div style={{width:46,height:46,borderRadius:12,background:t.dim,border:`1px solid ${t.color}40`,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{t.icon}</div>
+          <div style={{flex:1}}><div style={{fontWeight:800,fontSize:15}}>{a.name}</div><div style={{fontSize:12,color:C.txtSub,marginTop:1}}>{a.contact}</div></div>
+          <SBadge status={a.status}/>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <Pill trade={a.trade}/><TBadge xp={a.xp}/>
+          <span style={{fontSize:13,color:C.amber,fontWeight:700}}>★ {a.rating}</span>
+          <span style={{fontSize:12,color:C.green,fontWeight:600,marginLeft:"auto"}}>{a.avail}</span>
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+// ─── MESSAGES ─────────────────────────────────────────────────────────────────
+function MsgPage(){
+  const[threads,setThreads]=useState(INIT_THREADS);
+  const[sel,setSel]=useState(null);
+  const[text,setText]=useState("");
+  const botRef=useRef(null);
+  const total=CONTACTS.reduce((a,c)=>a+(c.unread||0),0);
+  useEffect(()=>{if(sel)botRef.current?.scrollIntoView({behavior:"smooth"});},[threads,sel]);
+  function send(){
+    if(!text.trim()||!sel)return;
+    setThreads(p=>({...p,[sel.id]:[...(p[sel.id]||[]),{id:Date.now(),from:"me",type:"text",text:text.trim(),time:"now"}]}));
+    setText("");
+    setTimeout(()=>{
+      const r=["Sounds good!","Can you send more details?","I'll confirm shortly.","Perfect, see you then."];
+      setThreads(p=>({...p,[sel.id]:[...(p[sel.id]||[]),{id:Date.now()+1,from:sel.id,type:"text",text:r[Math.floor(Math.random()*r.length)],time:"now"}]}));
+    },1200);
+  }
+  function preview(id){
+    const t=threads[id];if(!t||!t.length)return"No messages yet";
+    const l=[...t].reverse().find(m=>m.type!=="system");return l?l.text:"";
+  }
+  if(sel){
+    const msgs=threads[sel.id]||[];
+    const t=getTrade(sel.trade);
+    const isReq=msgs[0]?.text?.includes("Message request");
+    return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <DH onBack={()=>setSel(null)} title={sel.name} sub={`${sel.trade} · ${sel.tier}`} right={<Pill trade={sel.trade}/>}/>
+      {isReq&&<div style={{background:C.amberDim,border:`1px solid ${C.amber}30`,padding:"12px 16px",flexShrink:0,display:"flex",gap:10,alignItems:"center"}}>
+        <span>📨</span><div style={{flex:1,fontSize:13,color:C.amber,fontWeight:600}}>Message request — accept to reply</div>
+        <button style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Accept</button>
+      </div>}
+      <div style={{flex:1,overflowY:"auto",padding:"14px 14px 8px",WebkitOverflowScrolling:"touch"}}>
+        {msgs.length===0?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12,color:C.txtSub}}>
+          <div style={{width:56,height:56,borderRadius:14,background:t.dim,border:`1px solid ${t.color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>{sel.avatar}</div>
+          <div style={{fontSize:14}}>Start a conversation</div>
+        </div>:msgs.map(msg=>{
+          const fm=msg.from==="me";
+          if(msg.type==="system")return <div key={msg.id} style={{textAlign:"center",margin:"10px 0"}}>
+            <span style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:"4px 12px",fontSize:11,color:C.txtSub}}>{msg.text}</span>
+          </div>;
+          return <div key={msg.id} style={{display:"flex",flexDirection:fm?"row-reverse":"row",alignItems:"flex-end",gap:8,marginBottom:4}}>
+            {!fm&&<div style={{width:28,height:28,borderRadius:8,background:t.dim,border:`1px solid ${t.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{sel.avatar}</div>}
+            <div style={{maxWidth:"75%"}}>
+              <div style={{background:fm?"#1B4D3E":"#141828",border:`1px solid ${fm?C.accent+"25":C.border}`,
+                borderRadius:fm?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",fontSize:14,lineHeight:1.55,color:C.txt}}>{msg.text}</div>
+              <div style={{fontSize:10,color:C.txtSub,marginTop:3,textAlign:fm?"right":"left",paddingLeft:4,paddingRight:4}}>
+                {msg.time}{fm&&<span style={{marginLeft:4,color:C.accent}}>✓✓</span>}
+              </div>
+            </div>
+          </div>;
+        })}
+        <div ref={botRef}/>
+      </div>
+      <div style={{background:C.surface,borderTop:`1px solid ${C.border}`,padding:"10px 14px 28px",flexShrink:0,display:"flex",gap:10,alignItems:"flex-end"}}>
+        <div style={{flex:1,background:C.card,border:`1.5px solid ${C.border}`,borderRadius:13,display:"flex",alignItems:"center",padding:"10px 14px"}}>
+          <textarea value={text} onChange={e=>setText(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
+            placeholder="Message…" rows={1}
+            style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.txt,fontSize:15,fontFamily:"'IBM Plex Sans',sans-serif",resize:"none",lineHeight:1.5,maxHeight:80,overflowY:"auto"}}/>
+        </div>
+        <button onClick={send} disabled={!text.trim()}
+          style={{width:44,height:44,borderRadius:12,flexShrink:0,background:text.trim()?C.accent:C.border,border:"none",color:text.trim()?"#000":C.txtSub,fontSize:18,cursor:text.trim()?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center"}}>↑</button>
+      </div>
+    </div>;
+  }
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <div style={{padding:"18px 18px 12px",background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div style={{fontSize:20,fontWeight:800}}>Messages</div>
+        <button style={{background:C.accent,color:"#000",border:"none",borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>+ New</button>
+      </div>
+      {total>0&&<div style={{fontSize:13,color:C.amber,fontWeight:600}}>{total} unread</div>}
+    </div>
+    <div style={{flex:1,overflowY:"auto"}}>
+      {CONTACTS.map(c=>{
+        const t=getTrade(c.trade);const prev=preview(c.id);
+        const isReq=threads[c.id]?.[0]?.text?.includes("Message request");
+        return <div key={c.id} onClick={()=>setSel(c)}
+          style={{display:"flex",gap:12,alignItems:"center",padding:"14px 18px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,WebkitTapHighlightColor:"transparent"}}
+          onTouchStart={e=>{e.currentTarget.style.background=C.cardHi;}} onTouchEnd={e=>{e.currentTarget.style.background="transparent";}}>
+          <div style={{position:"relative",flexShrink:0}}>
+            <div style={{width:48,height:48,borderRadius:13,background:t.dim,border:`1.5px solid ${t.color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{c.avatar}</div>
+            <div style={{position:"absolute",bottom:-1,right:-1,width:10,height:10,borderRadius:"50%",background:c.online?C.green:"#4A5280",border:`2px solid ${C.surface}`}}/>
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:3}}>
+              <div style={{fontWeight:c.unread>0?800:600,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0,marginLeft:8}}>
+                <span style={{fontSize:11,color:C.txtSub}}>{c.lastSeen}</span>
+                {c.unread>0&&<div style={{width:20,height:20,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#000"}}>{c.unread}</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3}}>
+              <Pill trade={c.trade}/>
+              {isReq&&<span style={{background:C.amberDim,color:C.amber,border:`1px solid ${C.amber}30`,borderRadius:20,padding:"2px 7px",fontSize:10,fontWeight:700}}>Request</span>}
+            </div>
+            <div style={{fontSize:12,color:c.unread>0?C.txtSub:C.txtSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:c.unread>0?600:400}}>{prev}</div>
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// ─── CALENDAR ─────────────────────────────────────────────────────────────────
+function CalPage({isGC,plan,requirePlan}){
+  const[yr,setYr]=useState(TODAY.getFullYear());
+  const[mo,setMo]=useState(TODAY.getMonth());
+  const[av,setAv]=useState(AVAIL);
+  const[sel,setSel]=useState([]);
+  const[ds,setDs]=useState(null);
+  const[sent,setSent]=useState(false);
+  const dim=new Date(yr,mo+1,0).getDate();
+  const fd=new Date(yr,mo,1).getDay();
+  const cells=[...Array(fd).fill(null),...Array(dim).fill(0).map((_,i)=>i+1)];
+  function pm(){if(mo===0){setMo(11);setYr(y=>y-1);}else setMo(m=>m-1);}
+  function nm(){if(mo===11){setMo(0);setYr(y=>y+1);}else setMo(m=>m+1);}
+  function onDay(k,d,st){
+    if(isPast(yr,mo,d))return;
+    if(isGC&&st==="available")setSel(p=>p.includes(k)?p.filter(x=>x!==k):[...p,k]);
+    else setDs({k,d,st});
+  }
+  return <div style={{padding:"20px 18px 110px",position:"relative"}}>
+    <div style={{fontSize:20,fontWeight:800,marginBottom:4}}>{isGC?"Sub Availability":"My Availability"}</div>
+    <div style={{fontSize:14,color:C.txtSub,marginBottom:18}}>{isGC?"Tap available days to select, then send a booking request.":"Tap any day to update your status."}</div>
+    {!isGC&&<div style={{background:C.blueDim,border:`1.5px solid ${C.blue}40`,borderRadius:12,padding:"13px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"center"}}>
+      <span style={{fontSize:20}}>📨</span>
+      <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13,color:C.blue}}>1 Booking Request</div><div style={{fontSize:12,color:C.txtSub,marginTop:1}}>Apex Build Co. — May 4–8</div></div>
+      <button style={{background:C.blue,color:"#000",border:"none",borderRadius:8,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Review</button>
+    </div>}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+      <button onClick={pm} style={{width:42,height:42,borderRadius:11,background:C.card,border:`1px solid ${C.border}`,color:C.txt,fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+      <div style={{fontWeight:800,fontSize:18}}>{MONTHS[mo]} {yr}</div>
+      <button onClick={nm} style={{width:42,height:42,borderRadius:11,background:C.card,border:`1px solid ${C.border}`,color:C.txt,fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:4}}>
+      {DSHORT.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:700,color:C.txtSub,padding:"5px 0"}}>{d}</div>)}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:14}}>
+      {cells.map((d,i)=>{
+        if(!d)return <div key={"e"+i}/>;
+        const k=dkey(yr,mo,d);const st=av[k];const sc=DSTATUS[st];
+        const past=isPast(yr,mo,d);const isT=yr===TODAY.getFullYear()&&mo===TODAY.getMonth()&&d===TODAY.getDate();
+        const isSel=sel.includes(k);
+        return <button key={k} onClick={()=>onDay(k,d,st)}
+          style={{aspectRatio:"1",borderRadius:9,border:isSel?`2px solid ${C.accent}`:sc?`1.5px solid ${sc.border}`:`1px solid ${C.border}`,
+            background:isSel?C.accentDim:sc?sc.bg:"transparent",cursor:past?"not-allowed":"pointer",opacity:past?0.3:1,
+            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,position:"relative",WebkitTapHighlightColor:"transparent"}}>
+          {isT&&<div style={{position:"absolute",top:3,right:3,width:5,height:5,borderRadius:"50%",background:C.accent}}/>}
+          <span style={{fontSize:13,fontWeight:isT?800:600,color:isSel?C.accent:isT?C.accent:sc?sc.dot:C.txt}}>{d}</span>
+          {sc&&<div style={{width:4,height:4,borderRadius:"50%",background:sc.dot}}/>}
+        </button>;
+      })}
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+      {Object.entries(DSTATUS).slice(0,isGC?6:4).map(([s,sc])=>(
+        <div key={s} style={{display:"flex",alignItems:"center",gap:5}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:sc.dot}}/><span style={{fontSize:11,color:C.txtSub}}>{sc.label}</span>
+        </div>
+      ))}
+    </div>
+    {!isGC&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <Btn v="approve" sm>✓ Mark Week Available</Btn><Btn v="ghost" sm>🚫 Block Weekend</Btn>
+    </div>}
+    {ds&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setDs(null)}>
+      <div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:680,padding:"0 20px 40px"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"12px auto 18px"}}/>
+        <div style={{fontWeight:800,fontSize:17,marginBottom:14}}>{new Date(ds.k+"T12:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>
+        {!isGC&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+          {[{s:"available",l:"✓ Available",v:"approve"},{s:"tentative",l:"~ Tentative",v:"amber"},{s:"booked",l:"📋 Booked",v:"reject"},{s:"blocked",l:"🚫 Block",v:"ghost"}].map(opt=>(
+            <Btn key={opt.s} v={opt.v} sm onClick={()=>{setAv(p=>({...p,[ds.k]:opt.s}));setDs(null);}}>{opt.l}</Btn>
+          ))}
+        </div>}
+        <Btn v="ghost" full onClick={()=>setDs(null)}>Close</Btn>
+      </div>
+    </div>}
+    {sel.length>0&&isGC&&<div style={{position:"fixed",bottom:80,left:"50%",transform:"translateX(-50%)",background:C.card,border:`1.5px solid ${C.accent}60`,borderRadius:14,padding:"13px 16px",zIndex:100,display:"flex",gap:12,alignItems:"center",boxShadow:"0 8px 32px #00000080",maxWidth:500,width:"calc(100% - 36px)"}}>
+      <div style={{flex:1}}><div style={{fontWeight:800,fontSize:15,color:C.accent}}>{sel.length} days selected</div><div style={{fontSize:12,color:C.txtSub,marginTop:1}}>Send booking request</div></div>
+      <button onClick={()=>setSel([])} style={{background:C.redDim,color:C.red,border:`1px solid ${C.red}30`,borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Clear</button>
+      <button onClick={()=>{setSel([]);setSent(true);setTimeout(()=>setSent(false),2500);}} style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Send →</button>
+    </div>}
+    {sent&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:C.card,border:`1.5px solid ${C.accent}60`,borderRadius:12,padding:"11px 20px",fontSize:14,fontWeight:700,color:C.accent,zIndex:400}}>✓ Request sent!</div>}
+  </div>;
+}
+
+// ─── FIND WORK ────────────────────────────────────────────────────────────────
+function FWPage({plan,requirePlan}){
+  const[tf,setTF]=useState("All");
+  const trades=[...new Set(OPENINGS.map(o=>o.trade))];
+  const list=tf==="All"?OPENINGS:OPENINGS.filter(o=>o.trade===tf);
+  return <div style={{padding:"20px 18px 110px"}}>
+    <div style={{marginBottom:16}}><div style={{fontSize:20,fontWeight:800,marginBottom:2}}>Find Work</div><div style={{fontSize:14,color:C.txtSub}}>Verified GC openings. Pro Subs get 72hr early access.</div></div>
+    <div style={{background:C.accentDim,border:`1px solid ${C.accent}30`,borderRadius:12,padding:"11px 14px",marginBottom:16,display:"flex",gap:8,alignItems:"center"}}>
+      <span>⭐</span>
+      <div style={{flex:1}}><span style={{fontSize:13,color:C.accent,fontWeight:700}}>Pro Sub — 72hr early access </span><span style={{fontSize:12,color:C.txtSub}}>to all new openings.</span></div>
+      <button style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>$29/mo</button>
+    </div>
+    <TFRow trades={trades} active={tf} onChange={setTF}/>
+    {list.map(o=>{
+      const t=getTrade(o.trade);
+      return <div key={o.id} style={{background:C.card,border:`1.5px solid ${t.color}30`,borderRadius:14,padding:"16px",marginBottom:12,position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:t.color}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><Pill trade={o.trade}/><SBadge status={o.urgency}/></div>
+        <div style={{fontWeight:800,fontSize:16,marginBottom:2}}>{o.role}</div>
+        <div style={{fontSize:13,color:C.txtSub,marginBottom:12}}>📋 {o.project}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          {[["💰 Rate",o.rate],["📅 Duration",o.duration]].map(([l,v])=>(
+            <div key={l} style={{background:C.surface,borderRadius:8,padding:"9px 11px"}}>
+              <div style={{fontSize:11,color:C.txtSub}}>{l}</div><div style={{fontSize:14,fontWeight:700,marginTop:2}}>{v}</div>
+            </div>
+          ))}
+        </div>
+        <Btn v="primary" full onClick={()=>{if(requirePlan&&!requirePlan("earlyAccess")){};}}>Request This Opening</Btn>
+      </div>;
+    })}
+  </div>;
+}
+
+// ─── MY PROFILE ───────────────────────────────────────────────────────────────
+function ProfilePage({plan,requirePlan}){
+  const xp=38400;const tier=getTier(xp);const et=getTrade("Electrical");
+  const[tab,setTab]=useState("overview");
+  const xpN=tier.xpMax===Infinity?0:tier.xpMax-xp;
+  const prog=tier.xpMax===Infinity?100:Math.round(((xp-tier.xpMin)/(tier.xpMax-tier.xpMin))*100);
+  const REV=[
+    {gc:"Apex Build Co.",r:5,date:"Apr 2026",text:"Marcus led the crew flawlessly. Ahead of schedule, zero punchlist items.",proj:"Riverside Office Complex"},
+    {gc:"Peak Ridge Builders",r:5,date:"Feb 2026",text:"Third time hiring Marcus. Always professional.",proj:"Maple Heights Residential"},
+    {gc:"Summit Developers",r:4,date:"Dec 2025",text:"Great panel work. Minor hiccup resolved same day.",proj:"Westfield Phase 1"},
+  ];
+  const PTABS=[{id:"overview",l:"Overview"},{id:"projects",l:"Projects"},{id:"gallery",l:"Gallery"},{id:"reviews",l:"Reviews"},{id:"xp",l:"XP & Tier"}];
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"18px 18px 0",flexShrink:0}}>
+      <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:14}}>
+        <div style={{width:66,height:66,borderRadius:16,background:et.dim,border:`2px solid ${et.color}50`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,flexShrink:0}}>⚡</div>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:800,fontSize:19,marginBottom:2}}>Marcus Reyes</div>
+          <div style={{fontSize:13,color:C.txtSub,marginBottom:6}}>Reyes Electric LLC · Denver, CO</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Pill trade="Electrical" size="md"/><TBadge xp={xp} size="md"/><span style={{background:C.amberDim,color:C.amber,border:`1px solid ${C.amber}40`,borderRadius:20,padding:"4px 10px",fontSize:12,fontWeight:700}}>👷 Team Lead</span></div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
+        {[{l:"Rating",v:"4.9★",c:C.amber},{l:"Jobs",v:"62",c:C.accent},{l:"On Time",v:"96%",c:C.green},{l:"Rehire",v:"71%",c:C.purple}].map(s=>(
+          <div key={s.l} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 6px",textAlign:"center"}}>
+            <div style={{fontSize:16,fontWeight:800,color:s.c,fontFamily:"'IBM Plex Mono',monospace"}}>{s.v}</div>
+            <div style={{fontSize:10,color:C.txtSub,marginTop:2}}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"flex",overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+        {PTABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)}
+          style={{background:"none",border:"none",cursor:"pointer",padding:"11px 14px",fontSize:13,fontWeight:700,flexShrink:0,
+            color:tab===t.id?C.accent:C.txtSub,borderBottom:`2.5px solid ${tab===t.id?C.accent:"transparent"}`,
+            fontFamily:"'IBM Plex Sans',sans-serif",marginBottom:-1,WebkitTapHighlightColor:"transparent"}}>{t.l}</button>)}
+      </div>
+    </div>
+    <div style={{flex:1,overflowY:"auto",padding:"18px 18px 110px"}}>
+      {tab==="overview"&&<div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px",marginBottom:14}}>
+          <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>About</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <IC label="📍 Location" value="Denver, CO"/><IC label="📅 Available" value="May 15" color={C.green}/>
+            <IC label="📜 License" value="Journeyman · CO E-20847"/><IC label="🏅 Since" value="Jan 2023"/>
+          </div>
+        </div>
+        <div style={{background:tier.color+"15",border:`1.5px solid ${tier.color}40`,borderRadius:14,padding:"16px"}}>
+          <div style={{fontWeight:800,fontSize:15,marginBottom:10}}>Platform Tier</div>
+          <TBadge xp={xp} size="md"/>
+          <div style={{fontSize:13,color:C.txtSub,marginTop:8}}>Advanced field experience, lead-capable</div>
+          <div style={{marginTop:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+              <span style={{fontSize:11,color:C.txtSub,fontFamily:"'IBM Plex Mono',monospace"}}>{xp.toLocaleString()} XP</span>
+              {xpN>0&&<span style={{fontSize:11,color:C.txtSub}}>{xpN.toLocaleString()} to Master</span>}
+            </div>
+            <div style={{background:C.border,borderRadius:4,height:8,overflow:"hidden"}}>
+              <div style={{width:`${prog}%`,background:`linear-gradient(90deg,${tier.color}80,${tier.color})`,height:8,borderRadius:4,boxShadow:`0 0 6px ${tier.color}60`}}/>
+            </div>
+          </div>
+        </div>
+      </div>}
+      {tab==="projects"&&<div>
+        {[{title:"Riverside Office Complex",trade:"Electrical",year:"2026",role:"Lead Electrician",duration:"4 months",hi:true,scope:"Full electrical buildout — 18,000 sq ft commercial. Panel install, conduit, lighting, EV charging."},
+          {title:"Westfield Industrial Phase 1",trade:"Electrical",year:"2025",role:"Journeyman Electrician",duration:"5 months",hi:true,scope:"480V 3-phase distribution, motor controls, lighting for 40,000 sq ft warehouse."}
+        ].map((p,i)=>{
+          const pt=getTrade(p.trade);
+          return <div key={i} style={{background:C.card,border:`1.5px solid ${pt.color}30`,borderRadius:14,overflow:"hidden",marginBottom:14}}>
+            <div style={{height:3,background:pt.color}}/>
+            {p.hi&&<div style={{margin:"10px 14px 0",display:"inline-block",background:C.amberDim,color:C.amber,border:`1px solid ${C.amber}40`,borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700}}>⭐ Featured</div>}
+            <div style={{padding:"10px 14px 14px"}}>
+              <div style={{fontWeight:800,fontSize:15,marginBottom:3}}>{p.title}</div>
+              <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6,marginBottom:10}}>{p.scope}</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                <Pill trade={p.trade}/><span style={{fontSize:12,color:C.accent,fontWeight:700}}>{p.role}</span>
+                <span style={{fontSize:12,color:C.txtSub,marginLeft:"auto"}}>{p.duration}</span>
+              </div>
+            </div>
+          </div>;
+        })}
+        <Btn v="primary" full>+ Add Project</Btn>
+      </div>}
+      {tab==="gallery"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        {["⚡ Panel install","💡 LED retrofit","🔌 EV charging","☀️ Solar wiring","🏭 Motor controls","🔧 Conduit run"].map((cap,i)=>(
+          <div key={i} style={{background:et.dim,border:`1px solid ${et.color}30`,borderRadius:12,aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:10,gap:5}}>
+            <span style={{fontSize:28}}>{cap.split(" ")[0]}</span>
+            <span style={{fontSize:9,color:C.txtSub,textAlign:"center",lineHeight:1.3}}>{cap.slice(cap.indexOf(" ")+1)}</span>
+          </div>
+        ))}
+        <div style={{background:C.surface,border:`1.5px dashed ${C.border}`,borderRadius:12,aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5}}>
+          <span style={{fontSize:24,color:C.txtSub}}>+</span><span style={{fontSize:10,color:C.txtSub}}>Add Photo</span>
+        </div>
+      </div>}
+      {tab==="reviews"&&<div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+            <div style={{display:"flex",gap:2}}>{[1,2,3,4,5].map(i=><span key={i} style={{fontSize:18,color:C.amber}}>★</span>)}</div>
+            <span style={{fontSize:18,fontWeight:800,color:C.amber}}>4.9</span><span style={{fontSize:13,color:C.txtSub}}>(47 reviews)</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            <IC label="On Time" value="96%" color={C.green}/><IC label="Rehire" value="71%" color={C.purple}/><IC label="Jobs" value="62" color={C.accent}/>
+          </div>
+        </div>
+        {REV.map((r,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px 16px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+            <div><div style={{fontWeight:700,fontSize:14}}>{r.gc}</div><div style={{fontSize:11,color:C.txtSub,marginTop:1}}>{r.proj}</div></div>
+            <div style={{textAlign:"right"}}><div style={{color:C.amber}}>{"★".repeat(r.r)}{"☆".repeat(5-r.r)}</div><div style={{fontSize:11,color:C.txtSub,marginTop:1}}>{r.date}</div></div>
+          </div>
+          <div style={{fontSize:13,color:C.txtSub,lineHeight:1.7}}>"{r.text}"</div>
+        </div>)}
+      </div>}
+      {tab==="xp"&&<div>
+        <div style={{background:C.card,border:`1.5px solid ${tier.color}40`,borderRadius:14,padding:"16px",marginBottom:16}}>
+          <TBadge xp={xp} size="md"/>
+          <div style={{marginTop:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{fontSize:12,color:C.txtSub,fontFamily:"'IBM Plex Mono',monospace"}}>{xp.toLocaleString()} XP</span>
+              {xpN>0&&<span style={{fontSize:12,color:C.txtSub}}>{xpN.toLocaleString()} to Master</span>}
+            </div>
+            <div style={{background:C.border,borderRadius:5,height:10,overflow:"hidden"}}>
+              <div style={{width:`${prog}%`,background:`linear-gradient(90deg,${tier.color}80,${tier.color})`,height:10,borderRadius:5,boxShadow:`0 0 8px ${tier.color}60`}}/>
+            </div>
+          </div>
+        </div>
+        {[{date:"Apr 2026",action:"Large job — Riverside Office (Lead 1.5×)",xp:7500,lead:true},
+          {date:"Mar 2026",action:"5-star review from Apex Build Co.",xp:1500,lead:false},
+          {date:"Mar 2026",action:"On-time completion bonus",xp:800,lead:false},
+          {date:"Feb 2026",action:"Medium job — Retail Reno",xp:2500,lead:false},
+          {date:"Feb 2026",action:"Repeat hire by Peak Ridge",xp:1200,lead:false},
+        ].map((e,i,arr)=><div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:12}}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:e.lead?C.amber:C.accent,marginTop:4}}/>
+            {i<arr.length-1&&<div style={{width:2,flex:1,minHeight:18,background:C.border,marginTop:4}}/>}
+          </div>
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"11px 14px",flex:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+              <span style={{fontSize:13,fontWeight:600}}>{e.action}</span>
+              <span style={{fontSize:14,fontWeight:800,color:C.accent,fontFamily:"'IBM Plex Mono',monospace"}}>+{e.xp.toLocaleString()}</span>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:11,color:C.txtSub}}>{e.date}</span>
+              {e.lead&&<span style={{fontSize:10,background:C.amberDim,color:C.amber,border:`1px solid ${C.amber}30`,borderRadius:10,padding:"2px 7px",fontWeight:700}}>👷 1.5× Lead</span>}
+            </div>
+          </div>
+        </div>)}
+      </div>}
+    </div>
+  </div>;
+}
+
+// ─── ADMIN ────────────────────────────────────────────────────────────────────
+function AdminPage(){
+  const ASUBS=[
+    {id:"SUB-1041",lt:"CGC",name:"Ironclad Construction LLC",contact:"Derek Okafor",submitted:"Apr 11",priority:"Normal",status:"pending",
+      creds:[{type:"CGC License",num:"CGC-1042837",issuer:"FL DBPR",exp:"2028-03-15",st:"pending"},{type:"Surety Bond",num:"BND-88421",issuer:"Zurich",exp:"2027-01-10",st:"pending"},{type:"General Liability",num:"GL-200847",issuer:"Travelers",exp:"2027-04-01",st:"pending"}]},
+    {id:"SUB-1040",lt:"CRC",name:"Sunbelt Residential Builds",contact:"Rachel Chen",submitted:"Apr 10",priority:"Expedited",status:"pending",
+      creds:[{type:"CRC License",num:"CRC-20847",issuer:"FL DBPR",exp:"2027-09-20",st:"pending"},{type:"General Liability",num:"GL-771200",issuer:"CNA",exp:"2027-03-15",st:"pending"}]},
+    {id:"SUB-1039",lt:"CRC",name:"Summit Home Builders",contact:"Marcus Bell",submitted:"Apr 9",priority:"Normal",status:"needs_info",
+      creds:[{type:"CRC License",num:"CRC-30041",issuer:"FL DBPR",exp:"2026-08-30",st:"flagged"},{type:"General Liability",num:"GL-445810",issuer:"Hartford",exp:"2027-02-28",st:"pending"}]},
+    {id:"SUB-1038",lt:"CGC",name:"Peak Ridge Builders",contact:"Amy Sutton",submitted:"Apr 8",priority:"Normal",status:"approved",
+      creds:[{type:"CGC License",num:"CGC-9918273",issuer:"FL DBPR",exp:"2028-11-01",st:"approved"},{type:"Surety Bond",num:"BND-44102",issuer:"Berkley",exp:"2027-08-15",st:"approved"}]},
+  ];
+  const[subs,setSubs]=useState(ASUBS);
+  const[sel,setSel]=useState(null);
+  const[f,setF]=useState("all");
+  const cnt={all:subs.length,pending:subs.filter(s=>s.status==="pending").length,needs_info:subs.filter(s=>s.status==="needs_info").length,approved:subs.filter(s=>s.status==="approved").length,rejected:subs.filter(s=>s.status==="rejected").length};
+  const filt=subs.filter(s=>f==="all"||s.status===f);
+  const gc=subs.filter(s=>s.lt==="CGC").length,cr=subs.filter(s=>s.lt==="CRC").length;
+  function act(action){setSubs(p=>p.map(s=>s.id===sel.id?{...s,status:action}:s));setSel(null);}
+  if(sel){
+    const lt=LIC[sel.lt];
+    return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <DH onBack={()=>setSel(null)} title={sel.name} sub={`${sel.id} · ${sel.submitted}`} right={<SBadge status={sel.status}/>}/>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 18px 130px"}}>
+        <div style={{background:lt.dim,border:`1.5px solid ${lt.color}40`,borderRadius:12,padding:"13px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>{lt.icon}</span>
+          <div><div style={{fontWeight:800,fontSize:14,color:lt.color}}>{lt.label}</div><div style={{fontSize:12,color:C.txtSub,marginTop:1}}>{lt.scope}</div></div>
+        </div>
+        {sel.lt==="CRC"&&<div style={{background:C.amberDim,border:`1px solid ${C.amber}40`,borderRadius:10,padding:"11px 14px",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.amber,marginBottom:6}}>⚠ CRC Restrictions to Verify</div>
+          {LIC.CRC.restrictions.map((r,i)=><div key={i} style={{display:"flex",gap:7,marginBottom:4}}><span style={{color:C.amber,fontSize:12}}>✕</span><span style={{fontSize:12,color:C.txtSub}}>{r}</span></div>)}
+        </div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          <IC label="👤 Contact" value={sel.contact}/><IC label="⚡ Priority" value={sel.priority}/>
+          <IC label="🔒 Bond Req" value={lt.bond} color={C.accent}/>
+        </div>
+        <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Credentials</div>
+        {sel.creds.map((c,i)=><div key={i} style={{background:C.surface,border:`1.5px solid ${c.st==="approved"?C.accent+"50":c.st==="flagged"?C.red+"50":C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>{c.type}</div>
+          <div style={{fontSize:12,color:C.txtSub}}>#{c.num} · {c.issuer} · Exp {c.exp}</div>
+        </div>)}
+      </div>
+      <div style={{padding:"13px 18px 28px",background:C.surface,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+        <Btn v="approve" sm onClick={()=>act("approved")}>✓ Approve</Btn>
+        <Btn v="info" sm onClick={()=>act("needs_info")}>💬 Info</Btn>
+        <Btn v="reject" sm onClick={()=>act("rejected")}>✕ Reject</Btn>
+      </div>
+    </div>;
+  }
+  return <div style={{padding:"20px 18px 110px"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <div style={{fontSize:20,fontWeight:800}}>Admin Review</div>
+      <div style={{background:C.amberDim,border:`1px solid ${C.amber}30`,borderRadius:20,padding:"5px 12px",fontSize:12,color:C.amber,fontWeight:700}}>⏳ {cnt.pending} pending</div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+      <SC icon="⏳" label="Pending" value={cnt.pending} color={C.amber}/>
+      <SC icon="💬" label="Needs Info" value={cnt.needs_info} color={C.blue}/>
+      <SC icon="✓" label="Approved" value={cnt.approved} color={C.accent}/>
+      <SC icon="✕" label="Rejected" value={cnt.rejected} color={C.red}/>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+      {[["CGC",gc,LIC.CGC],["CRC",cr,LIC.CRC]].map(([type,count,lt])=>(
+        <div key={type} style={{background:lt.dim,border:`1.5px solid ${lt.color}40`,borderRadius:12,padding:"12px 14px",display:"flex",gap:10,alignItems:"center"}}>
+          <span style={{fontSize:22}}>{lt.icon}</span>
+          <div><div style={{fontSize:22,fontWeight:800,color:lt.color,fontFamily:"'IBM Plex Mono',monospace"}}>{count}</div><div style={{fontSize:12,fontWeight:700,color:lt.color}}>{lt.abbr}</div></div>
+        </div>
+      ))}
+    </div>
+    <div style={{display:"flex",gap:8,overflowX:"auto",WebkitOverflowScrolling:"touch",marginBottom:14,paddingBottom:2}}>
+      {[["all",`All (${cnt.all})`],["pending","⏳ Pending"],["needs_info","💬 Info"],["approved","✓ Done"],["rejected","✕ Rejected"]].map(([fv,l])=>(
+        <button key={fv} onClick={()=>setF(fv)}
+          style={{flexShrink:0,background:f===fv?C.accent:C.card,color:f===fv?"#000":C.txtSub,border:`1px solid ${f===fv?C.accent:C.border}`,borderRadius:20,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>{l}</button>
+      ))}
+    </div>
+    {filt.map(s=>{
+      const lt=LIC[s.lt];
+      return <div key={s.id} onClick={()=>setSel(s)}
+        style={{background:C.card,border:`1.5px solid ${lt.color}30`,borderRadius:14,padding:"14px 16px",marginBottom:10,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}
+        onTouchStart={e=>{e.currentTarget.style.background=C.cardHi;}} onTouchEnd={e=>{e.currentTarget.style.background=C.card;}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <div style={{width:42,height:42,borderRadius:11,background:lt.dim,border:`1px solid ${lt.color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{lt.icon}</div>
+            <div><div style={{fontWeight:800,fontSize:15}}>{s.name}</div><div style={{fontSize:11,color:C.txtSub,marginTop:1,fontFamily:"'IBM Plex Mono',monospace"}}>{s.id}</div></div>
+          </div>
+          <SBadge status={s.status}/>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+          <span style={{background:lt.dim,color:lt.color,border:`1px solid ${lt.color}40`,borderRadius:20,padding:"3px 9px",fontSize:11,fontWeight:800}}>{lt.icon} {lt.abbr}</span>
+          {s.priority==="Expedited"&&<span style={{background:C.purpleDim,color:C.purple,border:`1px solid ${C.purple}30`,borderRadius:10,padding:"2px 8px",fontSize:11,fontWeight:700}}>⚡ Expedited</span>}
+          <span style={{fontSize:11,color:C.txtSub,marginLeft:"auto"}}>{s.submitted}</span>
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {s.creds.map((c,i)=><div key={i} style={{height:4,flex:1,borderRadius:2,background:c.st==="approved"?C.accent:c.st==="flagged"?C.red:C.amber}}/>)}
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+
+// ─── PRICING DATA ─────────────────────────────────────────────────────────────
+const GC_PLANS = [
+  {
+    id: "starter",
+    name: "Starter",
+    price: 0,
+    period: "Free forever",
+    color: C.txtSub,
+    dim: "#6B729918",
+    icon: "🪨",
+    tagline: "Get verified and explore the platform",
+    cta: "Get Started Free",
+    ctaVariant: "ghost",
+    badge: null,
+    features: [
+      { label: "Browse verified subs (trade + tier only)",    included: true  },
+      { label: "Full sub profiles, portfolio & reviews",      included: false, lockedNote: "Builder+" },
+      { label: "Post up to 2 openings",                       included: true  },
+      { label: "Receive & review applicants",                 included: true  },
+      { label: "Message subs",                                included: true  },
+      { label: "Calendar booking requests",                   included: "3/mo"},
+      { label: "Auto license expiry alerts for hired subs",   included: false, lockedNote: "Builder+" },
+      { label: "Automated re-hire suggestions",               included: false, lockedNote: "Builder+" },
+      { label: "Saved sub rosters",                           included: false, lockedNote: "Builder+" },
+      { label: "Priority applicant sorting",                  included: false, lockedNote: "Builder+" },
+      { label: "Auto-broadcast openings to matching subs",    included: false, lockedNote: "Pro"      },
+      { label: "Project analytics & trade heatmaps",         included: false, lockedNote: "Pro"      },
+      { label: "Bulk calendar requests",                      included: false, lockedNote: "Pro"      },
+      { label: "Admin review priority",                       included: false, lockedNote: "Pro"      },
+      { label: "Preferred GC badge (earned, not displayed)",  included: "Earnable" },
+    ],
+  },
+  {
+    id: "builder",
+    name: "Builder",
+    price: 99,
+    period: "per month",
+    color: C.blue,
+    dim: C.blueDim,
+    icon: "🔩",
+    tagline: "For growing GCs managing multiple projects",
+    cta: "Start Builder",
+    ctaVariant: "blue",
+    badge: "Most Popular",
+    badgeColor: C.blue,
+    features: [
+      { label: "Browse verified subs (trade + tier only)",    included: true  },
+      { label: "Full sub profiles, portfolio & reviews",      included: true  },
+      { label: "Post up to 10 openings",                      included: true  },
+      { label: "Receive & review applicants",                 included: true  },
+      { label: "Message subs",                                included: true  },
+      { label: "Calendar booking requests",                   included: "25/mo"},
+      { label: "Auto license expiry alerts for hired subs",   included: true  },
+      { label: "Automated re-hire suggestions",               included: true  },
+      { label: "Saved sub rosters",                           included: true  },
+      { label: "Priority applicant sorting",                  included: true  },
+      { label: "Auto-broadcast openings to matching subs",    included: false, lockedNote: "Pro" },
+      { label: "Project analytics & trade heatmaps",         included: false, lockedNote: "Pro" },
+      { label: "Bulk calendar requests",                      included: false, lockedNote: "Pro" },
+      { label: "Admin review priority",                       included: false, lockedNote: "Pro" },
+      { label: "Preferred GC badge (displayed)",              included: "After 10 ★★★★★" },
+    ],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: 249,
+    period: "per month",
+    color: C.gold,
+    dim: C.goldDim,
+    icon: "🏆",
+    tagline: "Unlimited access + full automation suite",
+    cta: "Start Pro",
+    ctaVariant: "gold",
+    badge: "Full Power",
+    badgeColor: C.gold,
+    features: [
+      { label: "Browse verified subs (trade + tier only)",    included: true  },
+      { label: "Full sub profiles, portfolio & reviews",      included: true  },
+      { label: "Unlimited openings",                          included: true  },
+      { label: "Receive & review applicants",                 included: true  },
+      { label: "Message subs",                                included: true  },
+      { label: "Calendar booking requests",                   included: "Unlimited" },
+      { label: "Auto license expiry alerts for hired subs",   included: true  },
+      { label: "Automated re-hire suggestions",               included: true  },
+      { label: "Saved sub rosters",                           included: true  },
+      { label: "Priority applicant sorting",                  included: true  },
+      { label: "Auto-broadcast openings to matching subs",    included: true  },
+      { label: "Project analytics & trade heatmaps",         included: true  },
+      { label: "Bulk calendar requests",                      included: true  },
+      { label: "Admin review priority",                       included: true  },
+      { label: "Preferred GC badge (displayed)",              included: "After 10 ★★★★★" },
+    ],
+  },
+];
+
+const SUB_PLANS = [
+  {
+    id: "free",
+    name: "Free",
+    price: 0,
+    period: "Free forever",
+    color: C.txtSub,
+    dim: "#6B729918",
+    icon: "🔧",
+    tagline: "Everything you need to get hired",
+    cta: "Join Free",
+    ctaVariant: "ghost",
+    badge: null,
+    features: [
+      { label: "Verified profile with credentials",          included: true  },
+      { label: "Apply to open positions",                    included: true  },
+      { label: "Message GCs",                                included: true  },
+      { label: "Availability calendar",                      included: true  },
+      { label: "XP & tier progression",                      included: true  },
+      { label: "Project portfolio & photo gallery",          included: true  },
+      { label: "Boosted search ranking",                     included: false, lockedNote: "Pro Sub" },
+      { label: "\"Open to Work\" status badge",              included: false, lockedNote: "Pro Sub" },
+      { label: "72hr early access to new openings",          included: false, lockedNote: "Pro Sub" },
+      { label: "Featured in GC recommendations",             included: false, lockedNote: "Pro Sub" },
+      { label: "Portfolio view analytics",                   included: false, lockedNote: "Pro Sub" },
+      { label: "Multiple trade listings",                    included: false, lockedNote: "Pro Sub" },
+      { label: "Credential expiry reminders",                included: false, lockedNote: "Pro Sub" },
+    ],
+  },
+  {
+    id: "pro_sub",
+    name: "Pro Sub",
+    price: 29,
+    period: "per month",
+    color: C.accent,
+    dim: C.accentDim,
+    icon: "⭐",
+    tagline: "Stand out and get hired faster",
+    cta: "Go Pro Sub",
+    ctaVariant: "primary",
+    badge: "Best Value",
+    badgeColor: C.accent,
+    features: [
+      { label: "Verified profile with credentials",          included: true  },
+      { label: "Apply to open positions",                    included: true  },
+      { label: "Message GCs",                                included: true  },
+      { label: "Availability calendar",                      included: true  },
+      { label: "XP & tier progression",                      included: true  },
+      { label: "Project portfolio & photo gallery",          included: true  },
+      { label: "Boosted search ranking",                     included: true  },
+      { label: "\"Open to Work\" status badge",              included: true  },
+      { label: "72hr early access to new openings",          included: true  },
+      { label: "Featured in GC recommendations",             included: true  },
+      { label: "Portfolio view analytics",                   included: true  },
+      { label: "Multiple trade listings",                    included: true  },
+      { label: "Credential expiry reminders",                included: true  },
+    ],
+  },
+];
+
+const REWARDS_GC = [
+  { icon:"🤝", trigger:"5 hires through BuildSync",         reward:"1 month Builder free",          color: C.blue   },
+  { icon:"🔟", trigger:"10+ hires in a calendar year",      reward:"20% off Pro tier annually",     color: C.gold   },
+  { icon:"⭐", trigger:"10 five-star job completions",      reward:"Preferred GC badge unlocked",   color: C.amber  },
+  { icon:"📢", trigger:"Refer another GC who subscribes",   reward:"1 free month on your plan",     color: C.accent },
+  { icon:"📅", trigger:"12 consecutive months subscribed",  reward:"Priority support + rate lock",  color: C.purple },
+];
+
+const REWARDS_SUB = [
+  { icon:"🏅", trigger:"Every 10,000 XP earned",            reward:"1 month Pro Sub free",          color: C.accent },
+  { icon:"⭐", trigger:"Reach Elite tier",                   reward:"Pro Sub included, no charge",   color: C.amber  },
+  { icon:"🔥", trigger:"3 jobs completed in 90 days",        reward:"Featured placement for 30 days",color: C.red    },
+  { icon:"🤝", trigger:"Refer a new verified sub",           reward:"2 free Pro Sub months",         color: C.green  },
+  { icon:"🔁", trigger:"Rehired by the same GC 3× times",   reward:"\"Trusted Sub\" profile badge", color: C.blue   },
+  { icon:"📋", trigger:"Complete your full profile",         reward:"15% ranking boost for 60 days", color: C.purple },
+];
+
+const AUTOMATION_FEATURES = [
+  {
+    icon: "🔔",
+    title: "License Expiry Alerts",
+    plan: "Builder+",
+    planColor: C.blue,
+    description: "BuildSync monitors the license and insurance expiry dates of every sub you've hired. You'll get notified 90, 60, and 30 days before anything expires — so you're never caught mid-project with an uninsured crew.",
+  },
+  {
+    icon: "🔁",
+    title: "Smart Re-Hire Suggestions",
+    plan: "Builder+",
+    planColor: C.blue,
+    description: "When a new project start date approaches, BuildSync scans your past hire history and suggests available subs who worked well with you before — ranked by rating, on-time rate, and calendar availability.",
+  },
+  {
+    icon: "📡",
+    title: "Auto-Broadcast Openings",
+    plan: "Pro",
+    planColor: C.gold,
+    description: "Post an opening and BuildSync automatically pushes it to all verified, available subs in that trade within your region — including Pro Subs who get a 72hr head start. No manual searching required.",
+  },
+  {
+    icon: "📊",
+    title: "Trade Availability Heatmaps",
+    plan: "Pro",
+    planColor: C.gold,
+    description: "See a visual map of when and where specific trades are available in your area over the next 90 days. Plan project start dates around actual labor supply before you commit to a client.",
+  },
+  {
+    icon: "📋",
+    title: "Saved Sub Rosters",
+    plan: "Builder+",
+    planColor: C.blue,
+    description: "Build a private bench of trusted subs per trade. When a project opens up, your roster is one tap away — no re-searching the marketplace every time.",
+  },
+  {
+    icon: "🗓️",
+    title: "Bulk Calendar Requests",
+    plan: "Pro",
+    planColor: C.gold,
+    description: "Select multiple subs across multiple trades and send booking requests for the same date range in a single action. Ideal for project kickoffs that need full-crew coordination.",
+  },
+];
+
+// ─── PRICING COMPONENTS ───────────────────────────────────────────────────────
+const FeatureRow = ({ feature }) => {
+  const { label, included, lockedNote } = feature;
+  const isLocked   = included === false;
+  const isCustom   = typeof included === "string";
+  const isIncluded = included === true;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10,
+      padding: "10px 0", borderBottom: `1px solid ${C.border}20` }}>
+      <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+        background: isLocked ? C.border : isCustom ? C.amberDim : C.accentDim,
+        border: `1px solid ${isLocked ? C.borderHi : isCustom ? C.amber + "40" : C.accent + "40"}`,
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
+        {isLocked ? <span style={{ color: C.txtSub }}>✕</span>
+          : isCustom ? <span style={{ color: C.amber }}>~</span>
+          : <span style={{ color: C.accent }}>✓</span>}
+      </div>
+      <div style={{ flex: 1 }}>
+        <span style={{ fontSize: 13, color: isLocked ? C.txtSub : C.txt,
+          textDecoration: isLocked ? "none" : "none" }}>
+          {label}
+        </span>
+        {isCustom && (
+          <span style={{ fontSize: 11, color: C.amber, fontWeight: 700,
+            marginLeft: 6 }}>({included})</span>
+        )}
+      </div>
+      {isLocked && lockedNote && (
+        <span style={{ fontSize: 10, background: C.border, color: C.txtSub,
+          borderRadius: 10, padding: "2px 8px", fontWeight: 700,
+          flexShrink: 0 }}>🔒 {lockedNote}</span>
+      )}
+    </div>
+  );
+};
+
+const PlanCard = ({ plan, isCurrentPlan, onSelect }) => (
+  <div style={{ background: C.card,
+    border: `2px solid ${isCurrentPlan ? plan.color : plan.badge ? plan.color + "40" : C.border}`,
+    borderRadius: 18, overflow: "hidden", position: "relative",
+    boxShadow: isCurrentPlan ? `0 0 24px ${plan.color}20` : "none" }}>
+    {/* Top color bar */}
+    <div style={{ height: 4, background: `linear-gradient(90deg, ${plan.color}, ${plan.color}60)` }} />
+
+    {/* Badge */}
+    {plan.badge && (
+      <div style={{ position: "absolute", top: 16, right: 14,
+        background: plan.badgeColor + "20", color: plan.badgeColor,
+        border: `1px solid ${plan.badgeColor}40`,
+        borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 800 }}>
+        {plan.badge}
+      </div>
+    )}
+    {isCurrentPlan && (
+      <div style={{ position: "absolute", top: 16, right: 14,
+        background: plan.color + "20", color: plan.color,
+        border: `1px solid ${plan.color}40`,
+        borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 800 }}>
+        Current Plan
+      </div>
+    )}
+
+    <div style={{ padding: "20px 20px 22px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: plan.dim,
+          border: `1.5px solid ${plan.color}40`,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
+          {plan.icon}
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 18, color: plan.color }}>{plan.name}</div>
+          <div style={{ fontSize: 12, color: C.txtSub }}>{plan.tagline}</div>
+        </div>
+      </div>
+
+      {/* Price */}
+      <div style={{ marginBottom: 18 }}>
+        {plan.price === 0 ? (
+          <div style={{ fontSize: 32, fontWeight: 800, color: C.txt,
+            fontFamily: "'IBM Plex Mono', monospace" }}>Free</div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            <span style={{ fontSize: 13, color: C.txtSub, marginBottom: 2 }}>$</span>
+            <span style={{ fontSize: 36, fontWeight: 800, color: plan.color,
+              fontFamily: "'IBM Plex Mono', monospace" }}>{plan.price}</span>
+            <span style={{ fontSize: 13, color: C.txtSub }}>/mo</span>
+          </div>
+        )}
+        <div style={{ fontSize: 12, color: C.txtSub, marginTop: 2 }}>{plan.period}</div>
+      </div>
+
+      {/* CTA */}
+      <Btn v={isCurrentPlan ? "ghost" : plan.ctaVariant} full
+        onClick={() => onSelect(plan)}>
+        {isCurrentPlan ? "Current Plan" : plan.cta}
+      </Btn>
+
+      {/* Features */}
+      <div style={{ marginTop: 18 }}>
+        {plan.features.map((f, i) => <FeatureRow key={i} feature={f} />)}
+      </div>
+    </div>
+  </div>
+);
+
+const RewardsSection = ({ rewards, title, subtitle }) => (
+  <div style={{ marginBottom: 32 }}>
+    <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>{title}</div>
+    <div style={{ fontSize: 14, color: C.txtSub, marginBottom: 16 }}>{subtitle}</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {rewards.map((r, i) => (
+        <div key={i} style={{ background: C.card,
+          border: `1px solid ${r.color}30`,
+          borderRadius: 14, padding: "14px 16px",
+          display: "flex", gap: 14, alignItems: "center" }}>
+          <div style={{ width: 46, height: 46, borderRadius: 12,
+            background: r.color + "18", border: `1px solid ${r.color}30`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 22, flexShrink: 0 }}>{r.icon}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, color: C.txtSub, marginBottom: 3 }}>When you…</div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{r.trigger}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: C.txtSub }}>You get:</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: r.color }}>
+                {r.reward}
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const AutomationSection = () => (
+  <div style={{ marginBottom: 32 }}>
+    <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Automated Services</div>
+    <div style={{ fontSize: 14, color: C.txtSub, marginBottom: 16 }}>
+      BuildSync works in the background so you don't have to.
+    </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {AUTOMATION_FEATURES.map((f, i) => (
+        <div key={i} style={{ background: C.card, border: `1px solid ${f.planColor}25`,
+          borderRadius: 14, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12,
+              background: f.planColor + "18", border: `1px solid ${f.planColor}30`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 22, flexShrink: 0 }}>{f.icon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>{f.title}</div>
+                <span style={{ fontSize: 10, background: f.planColor + "18",
+                  color: f.planColor, border: `1px solid ${f.planColor}30`,
+                  borderRadius: 10, padding: "2px 8px", fontWeight: 800 }}>
+                  {f.plan}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: C.txtSub, lineHeight: 1.7 }}>
+                {f.description}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const CompareTable = ({ plans }) => {
+  const keyFeatures = [
+    "Full sub profiles, portfolio & reviews",
+    "Calendar booking requests",
+    "Auto license expiry alerts for hired subs",
+    "Automated re-hire suggestions",
+    "Auto-broadcast openings to matching subs",
+    "Project analytics & trade heatmaps",
+    "Bulk calendar requests",
+    "Admin review priority",
+  ];
+
+  return (
+    <div style={{ marginBottom: 32 }}>
+      <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 16 }}>Plan Comparison</div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 16, overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px",
+          gap: 0, background: C.surface, padding: "12px 16px",
+          borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 12, color: C.txtSub }}>Feature</div>
+          {plans.map(p => (
+            <div key={p.id} style={{ textAlign: "center", fontSize: 12,
+              fontWeight: 700, color: p.color }}>{p.name}</div>
+          ))}
+        </div>
+        {keyFeatures.map((feat, i) => (
+          <div key={i} style={{ display: "grid",
+            gridTemplateColumns: "1fr 80px 80px 80px",
+            padding: "12px 16px",
+            borderBottom: i < keyFeatures.length - 1 ? `1px solid ${C.border}20` : "none",
+            background: i % 2 === 0 ? "transparent" : C.surface + "60" }}>
+            <div style={{ fontSize: 12, color: C.txtSub, paddingRight: 8 }}>{feat}</div>
+            {plans.map(p => {
+              const f = p.features.find(ff => ff.label === feat ||
+                ff.label.includes(feat.split(" ")[0]));
+              const inc = f?.included;
+              return (
+                <div key={p.id} style={{ textAlign: "center" }}>
+                  {inc === true ? (
+                    <span style={{ color: C.accent, fontSize: 16 }}>✓</span>
+                  ) : inc === false ? (
+                    <span style={{ color: C.txtSub, fontSize: 14 }}>—</span>
+                  ) : typeof inc === "string" ? (
+                    <span style={{ color: C.amber, fontSize: 10,
+                      fontWeight: 700 }}>{inc}</span>
+                  ) : (
+                    <span style={{ color: C.txtSub, fontSize: 14 }}>—</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const CurrentPlanBanner = ({ plan, userType }) => {
+  const isGC = userType === "gc";
+  return (
+    <div style={{ background: plan.dim, border: `1.5px solid ${plan.color}40`,
+      borderRadius: 16, padding: "16px 18px", marginBottom: 24,
+      display: "flex", gap: 14, alignItems: "center" }}>
+      <div style={{ width: 50, height: 50, borderRadius: 13, background: plan.color + "25",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 26, flexShrink: 0 }}>{plan.icon}</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, color: plan.color, fontWeight: 700,
+          textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>
+          Current Plan
+        </div>
+        <div style={{ fontWeight: 800, fontSize: 17, color: plan.color }}>
+          {plan.name} {isGC ? "— General Contractor" : "— Subcontractor"}
+        </div>
+        <div style={{ fontSize: 13, color: C.txtSub, marginTop: 2 }}>
+          {plan.price === 0 ? "Free forever" : `$${plan.price}/month · renews May 13, 2026`}
+        </div>
+      </div>
+      {plan.price > 0 && (
+        <button style={{ background: C.redDim, color: C.red,
+          border: `1px solid ${C.red}30`, borderRadius: 9,
+          padding: "8px 12px", fontSize: 12, fontWeight: 700,
+          cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif",
+          flexShrink: 0 }}>Manage</button>
+      )}
+    </div>
+  );
+};
+
+// ─── PRICING PAGE ─────────────────────────────────────────────────────────────
+function PricePage({isGC, plan, onUpgrade}) {
+  const [tab, setTab] = useState("plans");
+
+  const planId = plan || (isGC ? "starter" : "free");
+
+  // Map app plan ids to pricing data ids
+  const gcCurrentPlan  = GC_PLANS.find(p => p.id === planId) || GC_PLANS[0];
+  const subCurrentPlan = SUB_PLANS.find(p => p.id === planId) || SUB_PLANS[0];
+  const currentPlan    = isGC ? gcCurrentPlan : subCurrentPlan;
+
+  const plans = isGC ? GC_PLANS : SUB_PLANS;
+
+  const TABS = isGC
+    ? [["plans","Plans"],["automation","Automation"],["rewards","Rewards"],["compare","Compare"]]
+    : [["plans","Plans"],["rewards","Rewards"]];
+
+  function handleSelect(p) {
+    if (onUpgrade) onUpgrade(p.id);
+  }
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      {/* Tab bar */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,
+        display:"flex",padding:"0 18px",flexShrink:0,overflowX:"auto"}}>
+        {TABS.map(([id,label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{background:"none",border:"none",cursor:"pointer",
+              padding:"14px 18px",fontSize:14,fontWeight:700,flexShrink:0,
+              color:tab===id?C.accent:C.txtSub,
+              borderBottom:`2.5px solid ${tab===id?C.accent:"transparent"}`,
+              fontFamily:"'IBM Plex Sans',sans-serif",
+              WebkitTapHighlightColor:"transparent",marginBottom:-1}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",
+        padding:"20px 18px 110px"}}>
+
+        {/* Current plan banner */}
+        {currentPlan && <CurrentPlanBanner plan={currentPlan} userType={isGC?"gc":"sub"} />}
+
+        {/* PLANS TAB */}
+        {tab === "plans" && (
+          <div>
+            <div style={{fontWeight:800,fontSize:20,marginBottom:4}}>
+              {isGC ? "General Contractor Plans" : "Subcontractor Plans"}
+            </div>
+            <div style={{fontSize:14,color:C.txtSub,marginBottom:20}}>
+              {isGC ? "Scale your hiring power. Cancel anytime." : "Get hired faster with Pro. Less than one hour of work pays for the month."}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:16}}>
+              {plans.map(p => (
+                <PlanCard
+                  key={p.id}
+                  plan={p}
+                  isCurrentPlan={planId === p.id}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </div>
+
+            {/* Annual savings callout */}
+            <div style={{background:C.accentDim,border:`1.5px solid ${C.accent}40`,
+              borderRadius:14,padding:"16px 18px",marginTop:20,
+              display:"flex",gap:12,alignItems:"center"}}>
+              <span style={{fontSize:28}}>💡</span>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:C.accent,marginBottom:3}}>
+                  Save with annual billing
+                </div>
+                <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6}}>
+                  {isGC
+                    ? "Pay annually and save 2 months free on Builder ($198 savings) or Pro ($498 savings)."
+                    : "Pay annually and save 2 months free on Pro Sub ($58 savings)."}
+                </div>
+              </div>
+            </div>
+
+            {/* No transaction fees */}
+            <div style={{background:C.greenDim,border:`1px solid ${C.green}30`,
+              borderRadius:14,padding:"16px 18px",marginTop:12,
+              display:"flex",gap:12,alignItems:"center"}}>
+              <span style={{fontSize:28}}>🚫</span>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:C.green,marginBottom:3}}>
+                  No transaction fees — ever
+                </div>
+                <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6}}>
+                  SubNet never takes a cut of your jobs. Your subscription is your only cost.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AUTOMATION TAB */}
+        {tab === "automation" && isGC && <AutomationSection />}
+
+        {/* REWARDS TAB */}
+        {tab === "rewards" && (
+          <div>
+            {isGC ? (
+              <RewardsSection
+                rewards={REWARDS_GC}
+                title="GC Loyalty Rewards"
+                subtitle="The more you hire through SubNet, the more you save."
+              />
+            ) : (
+              <>
+                <RewardsSection
+                  rewards={REWARDS_SUB}
+                  title="Sub Loyalty Rewards"
+                  subtitle="SubNet rewards your activity — earn free Pro Sub time just by doing your job."
+                />
+                <div style={{background:C.amberDim,border:`1.5px solid ${C.amber}40`,
+                  borderRadius:14,padding:"16px 18px"}}>
+                  <div style={{fontWeight:700,fontSize:15,color:C.amber,marginBottom:8}}>
+                    🏅 XP pays for itself
+                  </div>
+                  <div style={{fontSize:13,color:C.txtSub,lineHeight:1.7}}>
+                    Every 10,000 XP you earn unlocks one free month of Pro Sub.
+                    A single large job (5,000 XP) plus a 5-star review (1,500 XP) plus
+                    on-time bonus (800 XP) gets you 7,300 XP — halfway there from one good job.
+                  </div>
+                  <div style={{marginTop:12,background:C.amber+"15",borderRadius:10,
+                    padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:13,color:C.amber,fontWeight:600}}>Elite tier subs</span>
+                    <span style={{fontSize:13,fontWeight:800,color:C.amber}}>Pro Sub FREE ⭐</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* COMPARE TAB */}
+        {tab === "compare" && isGC && <CompareTable plans={GC_PLANS} />}
+      </div>
+    </div>
+  );
+}
+
+
+// ─── SUBSCRIPTION GATES ───────────────────────────────────────────────────────
+// Features and the minimum plan required to access them
+const GATES = {
+  // GC gates
+  subFullProfile:    {plan:"builder", label:"Full Sub Profiles",       icon:"👤", desc:"View complete sub profiles, portfolios, project history, and reviews."},
+  calendarRequests:  {plan:"builder", label:"Unlimited Booking Requests",icon:"📅", desc:"Send unlimited calendar booking requests to subs."},
+  licenseAlerts:     {plan:"builder", label:"License Expiry Alerts",   icon:"🔔", desc:"Auto-alerts when any hired sub's license or insurance is about to expire."},
+  rehireSuggestions: {plan:"builder", label:"Re-Hire Suggestions",     icon:"🔁", desc:"Smart suggestions for past subs when a new project start date approaches."},
+  savedRosters:      {plan:"builder", label:"Saved Sub Rosters",       icon:"📋", desc:"Build a private bench of trusted subs per trade."},
+  autoBroadcast:     {plan:"pro",     label:"Auto-Broadcast Openings",  icon:"📡", desc:"Automatically push new openings to all matching available subs in your region."},
+  tradeHeatmaps:     {plan:"pro",     label:"Trade Availability Heatmaps",icon:"📊",desc:"See when specific trades are available in your area over the next 90 days."},
+  bulkCalendar:      {plan:"pro",     label:"Bulk Calendar Requests",   icon:"🗓️", desc:"Book multiple subs across trades for the same dates in one action."},
+  adminPriority:     {plan:"pro",     label:"Admin Review Priority",    icon:"⚡", desc:"Your license submissions are reviewed first — faster account activation."},
+  // Sub gates
+  boostedRanking:    {plan:"pro_sub", label:"Boosted Search Ranking",   icon:"🚀", desc:"Your profile appears higher in GC search results."},
+  earlyAccess:       {plan:"pro_sub", label:"72hr Early Access",        icon:"⏰", desc:"See new openings 72 hours before free subs."},
+  featuredRecs:      {plan:"pro_sub", label:"Featured in GC Recommendations",icon:"⭐",desc:"BuildSync recommends you directly to GCs whose projects match your trade."},
+  portfolioAnalytics:{plan:"pro_sub", label:"Portfolio Analytics",      icon:"📈", desc:"See who viewed your profile, which projects got the most attention."},
+  multiTrade:        {plan:"pro_sub", label:"Multiple Trade Listings",  icon:"🔧", desc:"List up to 3 trades on your profile instead of 1."},
+  // Pay Tracker gates
+  payApprove:        {plan:"builder", label:"Invoice Approval & Disputes", icon:"💰", desc:"Approve, dispute, and track payment status on sub invoices with a full audit trail."},
+  payExport:         {plan:"pro",     label:"Payment Export & Reminders",  icon:"📤", desc:"Export payment reports and send automated reminders when invoices are overdue."},
+  payReminders:      {plan:"pro",     label:"Automated Payment Reminders", icon:"🔔", desc:"BuildSync automatically notifies subs when payment is processed or overdue."},
+  // Daily Log gates
+  logMandate:        {plan:"builder", label:"Mandate Daily Logs",          icon:"📋", desc:"Require subs to submit daily logs as a condition of hire. Export full reports."},
+  logExport:         {plan:"pro",     label:"Log Export & Auto-Summary",   icon:"📊", desc:"Auto-compiled weekly project summaries from all sub daily logs."},
+  // Change Order gates
+  changeOrderInit:   {plan:"builder", label:"Initiate Change Orders",      icon:"📝", desc:"Send formal change order requests to subs directly through BuildSync."},
+  changeOrderBulk:   {plan:"pro",     label:"Bulk Change Orders",          icon:"⚡", desc:"Issue change orders to multiple subs simultaneously across a project."},
+  // Crew Forecaster gates
+  forecast30:        {plan:"builder", label:"30-Day Crew Forecast",        icon:"📅", desc:"See trade availability forecasts 30 days out for your region."},
+  forecast90:        {plan:"pro",     label:"90-Day Crew Forecast",        icon:"🔭", desc:"Full 90-day forecast with trade density heatmap overlay."},
+  // Sub Pay gates
+  payHistory:        {plan:"pro_sub", label:"Full Payment History",        icon:"💳", desc:"Complete payment history, invoice tracking, and export for tax season."},
+};
+
+const PLAN_RANK = {starter:0, builder:1, pro:2, free:0, pro_sub:1};
+
+function canAccess(userPlan, requiredPlan) {
+  return (PLAN_RANK[userPlan]||0) >= (PLAN_RANK[requiredPlan]||0);
+}
+
+// Upgrade prompt modal — slides up from bottom
+function UpgradeModal({gate, userPlan, isGC, onClose, onUpgrade}) {
+  const g = GATES[gate];
+  if (!g) return null;
+  const targetPlan = g.plan;
+  const planMeta = isGC
+    ? {builder:{name:"Builder",price:99,color:C.blue,icon:"🔩"}, pro:{name:"Pro",price:249,color:C.gold,icon:"🏆"}}
+    : {pro_sub:{name:"Pro Sub",price:29,color:C.accent,icon:"⭐"}};
+  const pm = planMeta[targetPlan] || {name:"Pro",price:99,color:C.blue,icon:"🔩"};
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:400,
+      display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+      onClick={onClose}>
+      <div style={{background:C.card,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:680,
+        padding:"0 0 40px"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"14px auto 0"}}/>
+        <div style={{height:3,background:`linear-gradient(90deg,${pm.color},${pm.color}60)`,marginTop:14}}/>
+        <div style={{padding:"20px 20px 0"}}>
+          {/* Feature being blocked */}
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+            <div style={{width:54,height:54,borderRadius:14,background:pm.color+"18",
+              border:`1.5px solid ${pm.color}40`,display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:26,flexShrink:0}}>{g.icon}</div>
+            <div>
+              <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+                letterSpacing:"0.07em",marginBottom:3}}>🔒 Requires {pm.name}</div>
+              <div style={{fontWeight:800,fontSize:18}}>{g.label}</div>
+            </div>
+          </div>
+          <div style={{fontSize:14,color:C.txtSub,lineHeight:1.7,marginBottom:20}}>{g.desc}</div>
+
+          {/* Plan card */}
+          <div style={{background:C.surface,border:`1.5px solid ${pm.color}50`,borderRadius:14,
+            padding:"16px 18px",marginBottom:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>{pm.icon}</span>
+                <div>
+                  <div style={{fontWeight:800,fontSize:16,color:pm.color}}>{pm.name}</div>
+                  <div style={{fontSize:12,color:C.txtSub,marginTop:1}}>
+                    {isGC ? "General Contractor" : "Subcontractor"} plan
+                  </div>
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:28,fontWeight:800,color:pm.color,
+                  fontFamily:"'IBM Plex Mono',monospace",lineHeight:1}}>${pm.price}</div>
+                <div style={{fontSize:12,color:C.txtSub}}>/month</div>
+              </div>
+            </div>
+            {/* What else you get */}
+            <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+              letterSpacing:"0.07em",marginBottom:8}}>Also includes</div>
+            {(isGC && targetPlan==="builder" ? [
+              "Full sub profiles & portfolio","25 calendar requests/mo",
+              "Auto license expiry alerts","Re-hire suggestions","Saved sub rosters",
+            ] : isGC && targetPlan==="pro" ? [
+              "Everything in Builder","Unlimited openings & requests",
+              "Auto-broadcast openings","Trade heatmaps","Bulk calendar requests",
+            ] : [
+              "Boosted search ranking","72hr early access to openings",
+              "Featured in GC recommendations","Portfolio analytics","Multiple trade listings",
+            ]).map((f,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0"}}>
+                <span style={{color:pm.color,fontSize:12,flexShrink:0}}>✓</span>
+                <span style={{fontSize:13,color:C.txtSub}}>{f}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <button onClick={onClose}
+              style={{background:C.cardHi,color:C.txtSub,border:`1px solid ${C.border}`,
+                borderRadius:11,padding:"13px",fontWeight:700,fontSize:15,cursor:"pointer",
+                fontFamily:"'IBM Plex Sans',sans-serif"}}>Not Now</button>
+            <button onClick={()=>{onUpgrade();onClose();}}
+              style={{background:pm.color,color:"#000",border:"none",
+                borderRadius:11,padding:"13px",fontWeight:800,fontSize:15,cursor:"pointer",
+                fontFamily:"'IBM Plex Sans',sans-serif"}}>Upgrade to {pm.name}</button>
+          </div>
+          <div style={{textAlign:"center",marginTop:12,fontSize:12,color:C.txtSub}}>
+            Cancel anytime · No transaction fees
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ONBOARDING ───────────────────────────────────────────────────────────────
+const OB_STEPS_GC  = ["type","account","company","license","insurance","plan","review"];
+const OB_STEPS_SUB = ["type","account","trade","license","insurance","plan","review"];
+
+function OnboardingFlow({onComplete}) {
+  const[userType,setUserType]=useState(null);
+  const[step,setStep]=useState(0);
+  const[lic,setLic]=useState("CGC");
+  const[plan,setPlan]=useState("starter");
+  const[form,setForm]=useState({firstName:"",lastName:"",email:"",password:"",
+    company:"",state:"CO",yearsExp:"",trade:"",licNum:"",licExp:"",
+    insCarrier:"",insPolicy:"",insExp:""});
+  const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+  const steps=userType==="gc"?OB_STEPS_GC:OB_STEPS_SUB;
+  const cur=steps[step];
+  const lt=lic?LIC[lic]:null;
+
+  const inp=(label,key,ph,type="text")=>(
+    <div style={{marginBottom:16}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.txtSub,textTransform:"uppercase",
+        letterSpacing:"0.08em",marginBottom:6}}>{label}</div>
+      <input type={type} placeholder={ph} value={form[key]} onChange={set(key)}
+        style={{width:"100%",background:"#111520",border:`1.5px solid #252B45`,borderRadius:10,
+          padding:"12px 14px",color:C.txt,fontSize:15,fontFamily:"'IBM Plex Sans',sans-serif",
+          boxSizing:"border-box",outline:"none"}}
+        onFocus={e=>e.target.style.borderColor=C.accent}
+        onBlur={e=>e.target.style.borderColor=C.border}/>
+    </div>
+  );
+
+  const sel=(label,key,opts)=>(
+    <div style={{marginBottom:16}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.txtSub,textTransform:"uppercase",
+        letterSpacing:"0.08em",marginBottom:6}}>{label}</div>
+      <select value={form[key]} onChange={set(key)}
+        style={{width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,
+          padding:"12px 14px",color:C.txt,fontSize:15,fontFamily:"'IBM Plex Sans',sans-serif",outline:"none"}}>
+        {opts.map(o=><option key={o.v||o} value={o.v||o}>{o.l||o}</option>)}
+      </select>
+    </div>
+  );
+
+  if(!userType) return (
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'IBM Plex Sans',sans-serif",
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{textAlign:"center",marginBottom:44,maxWidth:480,width:"100%"}}>
+        <div style={{fontSize:36,fontWeight:800,color:C.accent,letterSpacing:"-0.03em",marginBottom:6}}>⚡ SubNet</div>
+        <div style={{fontSize:16,color:C.txtSub}}>The verified contractor coordination platform</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,maxWidth:480,width:"100%"}}>
+        {[
+          {type:"gc",icon:"🏗️",title:"General Contractor",desc:"Post projects, hire verified subs, manage crews",
+            checks:["CGC or CRC license required","Bond & insurance verified","Full hiring suite"]},
+          {type:"sub",icon:"🔧",title:"Subcontractor",desc:"Find work, showcase credentials, earn tier status",
+            checks:["Trade license (if applicable)","Insurance required","XP & tier progression"]},
+        ].map(opt=>(
+          <div key={opt.type} onClick={()=>{setUserType(opt.type);setStep(1);}}
+            style={{background:C.card,border:`2px solid ${C.border}`,borderRadius:18,
+              padding:24,cursor:"pointer"}}
+            onTouchStart={e=>{e.currentTarget.style.borderColor=C.accent;}}
+            onTouchEnd={e=>{e.currentTarget.style.borderColor=C.border;}}>
+            <div style={{fontSize:38,marginBottom:12}}>{opt.icon}</div>
+            <div style={{fontWeight:800,fontSize:16,marginBottom:6}}>{opt.title}</div>
+            <div style={{fontSize:13,color:C.txtSub,marginBottom:16,lineHeight:1.5}}>{opt.desc}</div>
+            {opt.checks.map(c=>(
+              <div key={c} style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.txtSub,marginBottom:5}}>
+                <span style={{color:C.accent}}>✓</span>{c}
+              </div>
+            ))}
+            <div style={{marginTop:18,background:C.accent,color:"#000",borderRadius:9,
+              padding:"10px 0",textAlign:"center",fontWeight:700,fontSize:13}}>
+              Join as {opt.title} →
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:20,fontSize:13,color:C.txtSub}}>
+        Already have an account?{" "}
+        <span style={{color:C.accent,cursor:"pointer",fontWeight:600}}
+          onClick={()=>onComplete({mode:"gc",lic:"CGC",plan:"builder",verified:true})}>
+          Sign in
+        </span>
+      </div>
+    </div>
+  );
+
+  // Step progress bar
+  const stepIdx = step;
+  const totalSteps = steps.length;
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'IBM Plex Sans',sans-serif",
+      display:"flex",flexDirection:"column"}}>
+      {/* Header */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,
+        padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{fontWeight:800,fontSize:16,color:C.accent}}>⚡ SubNet</div>
+        <div style={{fontSize:13,color:C.txtSub}}>
+          {userType==="gc"?"🏗️ GC Registration":"🔧 Sub Registration"}
+        </div>
+        <button onClick={()=>{setUserType(null);setStep(0);}}
+          style={{background:"none",border:"none",color:C.txtSub,cursor:"pointer",fontSize:13,
+            fontFamily:"'IBM Plex Sans',sans-serif"}}>← Back</button>
+      </div>
+      {/* Progress */}
+      <div style={{background:"#0D1017",borderBottom:`1px solid ${C.border}`,padding:"14px 20px"}}>
+        <div style={{display:"flex",gap:4}}>
+          {steps.slice(1).map((_,i)=>(
+            <div key={i} style={{flex:1,height:4,borderRadius:2,
+              background:i<stepIdx?C.accent:i===stepIdx-1?C.accent:C.border,
+              transition:"background 0.3s"}}/>
+          ))}
+        </div>
+        <div style={{fontSize:12,color:C.txtSub,marginTop:6}}>
+          Step {stepIdx} of {totalSteps-1}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{flex:1,overflowY:"auto",padding:"28px 20px 40px",background:C.bg}}>
+        <div style={{maxWidth:520,margin:"0 auto"}}>
+
+          {cur==="account"&&<div>
+            <div style={{fontWeight:800,fontSize:22,marginBottom:4,color:C.txt}}>Create your account</div>
+            <div style={{fontSize:14,color:"#9BA3C2",marginBottom:24}}>Start with your basic contact info.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+              {inp("First Name","firstName","John")}
+              {inp("Last Name","lastName","Smith")}
+            </div>
+            {inp("Work Email","email","you@company.com","email")}
+            {inp("Password","password","Min 8 characters","password")}
+          </div>}
+
+          {cur==="company"&&<div>
+            <div style={{fontWeight:800,fontSize:22,marginBottom:4,color:C.txt}}>Company details</div>
+            <div style={{fontSize:14,color:"#9BA3C2",marginBottom:16}}>Tell us about your contracting business.</div>
+            {/* License type picker */}
+            <div style={{fontSize:11,fontWeight:700,color:C.txtSub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>License Type</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
+              {["CGC","CRC"].map(l=>{
+                const lt2=LIC[l];
+                return <button key={l} onClick={()=>setLic(l)}
+                  style={{background:lic===l?lt2.dim:C.surface,border:`1.5px solid ${lic===l?lt2.color+"60":C.border}`,
+                    borderRadius:12,padding:"14px 12px",cursor:"pointer",textAlign:"left",
+                    fontFamily:"'IBM Plex Sans',sans-serif"}}>
+                  <div style={{fontSize:20,marginBottom:6}}>{lt2.icon}</div>
+                  <div style={{fontWeight:800,fontSize:14,color:lic===l?lt2.color:C.txt}}>{lt2.abbr}</div>
+                  <div style={{fontSize:11,color:C.txtSub,marginTop:3,lineHeight:1.4}}>{lt2.label}</div>
+                  {lic===l&&<div style={{marginTop:8,fontSize:11,color:lt2.color}}>✓ Selected</div>}
+                </button>;
+              })}
+            </div>
+            {lt&&<div style={{background:lt.dim,border:`1px solid ${lt.color}30`,borderRadius:10,
+              padding:"10px 14px",marginBottom:18,fontSize:12,color:lt.color}}>
+              <strong>Scope:</strong> {lt.scope}
+            </div>}
+            {inp("Legal Company Name","company","Apex Build Co. LLC")}
+            {sel("State of Operation","state",["CO","TX","CA","FL","AZ","NV","UT","WA","OR","ID"])}
+            {inp("Years in Business","yearsExp","e.g. 12","number")}
+          </div>}
+
+          {cur==="trade"&&<div>
+            <div style={{fontWeight:800,fontSize:22,marginBottom:4,color:C.txt}}>Your trade</div>
+            <div style={{fontSize:14,color:"#9BA3C2",marginBottom:20}}>What work do you specialize in?</div>
+            {sel("Primary Trade","trade",[
+              {v:"",l:"Select your trade…"},
+              ...["Electrical","Plumbing","HVAC","Framing","Roofing","Drywall","Concrete","Painting","Flooring","Masonry","Landscaping"].map(t=>({v:t,l:t}))
+            ])}
+            {form.trade&&["Electrical","Plumbing","HVAC","Roofing"].includes(form.trade)&&(
+              <div style={{background:C.amberDim,border:`1px solid ${C.amber}40`,borderRadius:10,
+                padding:"13px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{fontSize:18}}>⚠️</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:C.amber,marginBottom:3}}>License Required</div>
+                  <div style={{fontSize:12,color:C.txtSub,lineHeight:1.6}}>
+                    {form.trade} is a licensed trade. You'll need to provide your state contractor license on the next step.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>}
+
+          {cur==="license"&&<div>
+            <div style={{fontWeight:800,fontSize:22,marginBottom:4,color:C.txt}}>License & bonding</div>
+            <div style={{fontSize:14,color:C.txtSub,marginBottom:20}}>
+              Verified within 1–2 business days. You can browse the platform while we verify.
+            </div>
+            <div style={{background:C.blueDim,border:`1px solid ${C.blue}30`,borderRadius:10,
+              padding:"12px 14px",marginBottom:18,fontSize:13,color:C.txtSub}}>
+              <strong style={{color:C.txt}}>Required: </strong>
+              {userType==="gc"?`${lic} License — issued by FL DBPR`:"State contractor license for your trade"}
+            </div>
+            {inp("License Number","licNum","e.g. CGC-1042837")}
+            {inp("License Expiration","licExp","","date")}
+            {userType==="gc"&&<div style={{background:"#111520",border:`1px solid #252B45`,borderRadius:10,
+              padding:"14px",marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:14,marginBottom:4,color:C.txt}}>Surety Bond</div>
+              <div style={{fontSize:12,color:"#9BA3C2",marginBottom:12}}>{lt?.bond} required</div>
+              {inp("Bond Amount ($)","","e.g. 20000")}
+            </div>}
+            <div style={{background:"#111520",border:`1.5px dashed #252B45`,borderRadius:10,
+              padding:"16px",textAlign:"center",cursor:"pointer",marginBottom:8}}>
+              <div style={{fontSize:22,marginBottom:6}}>📄</div>
+              <div style={{fontWeight:600,fontSize:14,color:C.txt}}>Upload License Certificate</div>
+              <div style={{fontSize:12,color:"#9BA3C2",marginTop:3}}>PDF or photo · max 10MB</div>
+            </div>
+          </div>}
+
+          {cur==="insurance"&&<div>
+            <div style={{fontWeight:800,fontSize:22,marginBottom:4,color:C.txt}}>Insurance</div>
+            <div style={{fontSize:14,color:"#9BA3C2",marginBottom:16}}>All platform members must carry active general liability insurance.</div>
+            <div style={{background:C.amberDim,border:`1px solid ${C.amber}30`,borderRadius:10,
+              padding:"11px 14px",marginBottom:18,fontSize:12,color:C.txtSub}}>
+              <strong style={{color:C.amber}}>Minimum: </strong>
+              {userType==="gc"?"$1M General Liability · $1M Workers' Comp":"$500K General Liability"}
+            </div>
+            {inp("Insurance Carrier","insCarrier","e.g. Travelers, Zurich")}
+            {inp("Policy Number","insPolicy","e.g. GL-200847")}
+            {inp("Policy Expiration","insExp","","date")}
+            <div style={{background:"#111520",border:`1.5px dashed #252B45`,borderRadius:10,
+              padding:"16px",textAlign:"center",cursor:"pointer"}}>
+              <div style={{fontSize:22,marginBottom:6}}>🛡️</div>
+              <div style={{fontWeight:600,fontSize:14,color:C.txt}}>Upload Certificate of Insurance</div>
+              <div style={{fontSize:12,color:"#9BA3C2",marginTop:3}}>Must name SubNet as additional insured</div>
+            </div>
+          </div>}
+
+          {cur==="plan"&&<div>
+            <div style={{fontWeight:800,fontSize:22,marginBottom:4,color:C.txt}}>Choose your plan</div>
+            <div style={{fontSize:14,color:"#9BA3C2",marginBottom:20}}>You can upgrade or change anytime.</div>
+            {(userType==="gc"?[
+              {id:"starter",name:"Starter",price:"Free",color:C.txtSub,icon:"🪨",
+                perks:["Browse subs (trade + tier only)","2 openings max","3 calendar requests/mo"]},
+              {id:"builder",name:"Builder",price:"$99/mo",color:C.blue,icon:"🔩",badge:"Most Popular",
+                perks:["Full sub profiles & portfolio","10 openings","Auto license alerts","Saved rosters"]},
+              {id:"pro",name:"Pro",price:"$249/mo",color:C.gold,icon:"🏆",
+                perks:["Everything in Builder","Unlimited openings","Auto-broadcast","Trade heatmaps"]},
+            ]:[
+              {id:"free",name:"Free",price:"Free",color:C.txtSub,icon:"🔧",
+                perks:["Verified profile","Apply to openings","XP & tier progression"]},
+              {id:"pro_sub",name:"Pro Sub",price:"$29/mo",color:C.accent,icon:"⭐",badge:"Best Value",
+                perks:["Boosted search ranking","72hr early access","Featured in GC recommendations"]},
+            ]).map(p=>(
+              <div key={p.id} onClick={()=>setPlan(p.id)}
+                style={{background:C.card,border:`2px solid ${plan===p.id?p.color:C.border}`,
+                  borderRadius:14,padding:"16px",marginBottom:12,cursor:"pointer",
+                  boxShadow:plan===p.id?`0 0 16px ${p.color}20`:"none"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:22}}>{p.icon}</span>
+                    <div>
+                      <div style={{fontWeight:800,fontSize:16,color:p.color}}>{p.name}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:plan===p.id?p.color:C.txtSub}}>{p.price}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    {p.badge&&<span style={{background:p.color+"20",color:p.color,border:`1px solid ${p.color}40`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:800}}>{p.badge}</span>}
+                    <div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${plan===p.id?p.color:C.border}`,
+                      background:plan===p.id?p.color:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {plan===p.id&&<span style={{color:"#000",fontSize:12,fontWeight:800}}>✓</span>}
+                    </div>
+                  </div>
+                </div>
+                {p.perks.map((pk,i)=>(
+                  <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"4px 0"}}>
+                    <span style={{color:plan===p.id?p.color:C.txtSub,fontSize:11,flexShrink:0}}>✓</span>
+                    <span style={{fontSize:12,color:plan===p.id?C.txtSub:C.txtMuted}}>{pk}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>}
+
+          {cur==="review"&&<div>
+            <div style={{fontWeight:800,fontSize:22,marginBottom:4,color:C.txt}}>Review & submit</div>
+            <div style={{fontSize:14,color:C.txtSub,marginBottom:20}}>
+              Our team verifies your credentials within 1–2 business days. You can browse in read-only mode while you wait.
+            </div>
+            {[
+              {icon:"👤",label:"Account",items:[`${form.firstName} ${form.lastName}`,form.email]},
+              userType==="gc"&&{icon:lt?.icon||"🏗️",label:"License",items:[`${lic} · ${form.licNum||"—"}`,`Exp ${form.licExp||"—"}`]},
+              userType==="sub"&&{icon:"🔧",label:"Trade",items:[form.trade||"—"]},
+              {icon:"🛡️",label:"Insurance",items:[form.insCarrier||"—",form.insPolicy||"—"]},
+              {icon:"💳",label:"Plan",items:[plan.toUpperCase()]},
+            ].filter(Boolean).map((s,i)=>(
+              <div key={i} style={{background:"#111520",border:`1px solid #252B45`,
+                borderRadius:10,padding:"13px 16px",marginBottom:10,display:"flex",gap:12,alignItems:"center"}}>
+                <span style={{fontSize:20}}>{s.icon}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13,marginBottom:3,color:C.txt}}>{s.label}</div>
+                  {s.items.map((it,j)=><div key={j} style={{fontSize:12,color:"#9BA3C2"}}>{it}</div>)}
+                </div>
+                <span style={{background:C.amberDim,color:C.amber,border:`1px solid ${C.amber}40`,
+                  borderRadius:20,padding:"3px 9px",fontSize:10,fontWeight:700}}>Pending</span>
+              </div>
+            ))}
+            <div style={{background:C.blueDim,border:`1px solid ${C.blue}40`,borderRadius:10,
+              padding:"13px 14px",marginTop:8,fontSize:13,color:"#9BA3C2",lineHeight:1.7}}>
+              <strong style={{color:C.txt}}>What happens next?</strong><br/>
+              We'll verify your license with the issuing board and confirm your insurance. You'll get an email within <strong>1–2 business days</strong>.
+            </div>
+          </div>}
+
+        </div>
+      </div>
+
+      {/* Nav buttons */}
+      <div style={{background:C.surface,borderTop:`1px solid ${C.border}`,
+        padding:"14px 20px 28px",display:"flex",gap:12}}>
+        <button onClick={()=>{if(step<=1){setUserType(null);setStep(0);}else setStep(s=>s-1);}}
+          style={{flex:1,background:C.cardHi,color:C.txtSub,border:`1px solid ${C.border}`,
+            borderRadius:11,padding:"13px",fontWeight:700,fontSize:15,cursor:"pointer",
+            fontFamily:"'IBM Plex Sans',sans-serif"}}>← Back</button>
+        <button
+          onClick={()=>{
+            const emailOk2 = cur!=="account" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
+            const fieldsOk2 = cur!=="account" || (form.firstName.trim()&&form.lastName.trim()&&form.email.trim()&&form.password.length>=8);
+            const tradeOk2  = cur!=="trade"   || form.trade!=="";
+            if(!emailOk2||!fieldsOk2||!tradeOk2) return;
+            if(step<steps.length-1) setStep(s=>s+1);
+            else onComplete({mode:userType,lic:userType==="gc"?lic:"",plan,verified:false});
+          }}
+          style={{flex:2,background:C.accent,color:"#000",border:"none",
+            borderRadius:11,padding:"13px",fontWeight:800,fontSize:15,cursor:"pointer",
+            fontFamily:"'IBM Plex Sans',sans-serif"}}>
+          {step<steps.length-1?"Continue →":"Submit for Verification"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── PENDING SCREEN ───────────────────────────────────────────────────────────
+function PendingScreen({userType, onApprove}) {
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'IBM Plex Sans',sans-serif",
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{maxWidth:460,width:"100%",textAlign:"center"}}>
+        <div style={{width:80,height:80,borderRadius:"50%",background:C.amberDim,
+          border:`2px solid ${C.amber}40`,display:"flex",alignItems:"center",
+          justifyContent:"center",fontSize:36,margin:"0 auto 24px"}}>⏳</div>
+        <div style={{fontWeight:800,fontSize:24,marginBottom:8}}>Verification In Progress</div>
+        <div style={{fontSize:14,color:C.txtSub,lineHeight:1.8,marginBottom:28}}>
+          Your {userType==="gc"?"contractor license":"credentials"} are being verified with the issuing state board. This typically takes <strong style={{color:C.txt}}>1–2 business days</strong>.
+        </div>
+        {[
+          {icon:"📜",label:userType==="gc"?"GC License":"Trade License / Cert",status:"Verifying",color:C.amber},
+          {icon:"🛡️",label:"Certificate of Insurance",status:"Received",color:C.green},
+          {icon:"📧",label:"Email Confirmed",status:"Confirmed",color:C.green},
+        ].map((item,i)=>(
+          <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,
+            borderRadius:12,padding:"13px 16px",marginBottom:10,
+            display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <span style={{fontSize:20}}>{item.icon}</span>
+              <span style={{fontSize:13,fontWeight:600}}>{item.label}</span>
+            </div>
+            <span style={{background:item.status==="Verifying"?C.amberDim:C.greenDim,
+              color:item.status==="Verifying"?C.amber:C.green,
+              border:`1px solid ${item.status==="Verifying"?C.amber+"40":C.green+"40"}`,
+              borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>{item.status}</span>
+          </div>
+        ))}
+        <div style={{fontSize:13,color:C.txtSub,marginTop:16,marginBottom:24}}>
+          While you wait, you can browse the platform in read-only mode.
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <button onClick={()=>onApprove(false)}
+            style={{background:C.cardHi,color:C.txtSub,border:`1px solid ${C.border}`,
+              borderRadius:11,padding:"13px",fontWeight:700,fontSize:14,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif"}}>Browse (Read-Only)</button>
+          <button onClick={()=>onApprove(true)}
+            style={{background:C.accent,color:"#000",border:"none",
+              borderRadius:11,padding:"13px",fontWeight:700,fontSize:14,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif"}}>▶ Demo: Approve</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+// ─── PAY TRACKER ─────────────────────────────────────────────────────────────
+const PAY_INVOICES = [
+  {id:"INV-001",sub:"Garcia Electric LLC",trade:"Electrical",project:"Riverside Office Complex",
+   amount:18400,submitted:"Apr 10",due:"Apr 24",status:"pending_approval",items:[
+    {desc:"Panel installation — Phase 1",qty:1,rate:8200,total:8200},
+    {desc:"Conduit rough-in (1,200 LF)",qty:1200,rate:4.50,total:5400},
+    {desc:"Crew labor — 4 days × 4 workers",qty:16,rate:300,total:4800},
+  ]},
+  {id:"INV-002",sub:"Ironwood Framing Co.",trade:"Framing",project:"Maple Heights Residential",
+   amount:12600,submitted:"Apr 8",due:"Apr 22",status:"approved",items:[
+    {desc:"Framing crew — 6 days",qty:6,rate:2100,total:12600},
+  ]},
+  {id:"INV-003",sub:"AirFlow Mech LLC",trade:"HVAC",project:"Riverside Office Complex",
+   amount:9800,submitted:"Apr 5",due:"Apr 19",status:"disputed",disputeReason:"Scope discrepancy on unit count — contract specifies 12 units, invoice reflects 14.",items:[
+    {desc:"HVAC unit install × 14",qty:14,rate:700,total:9800},
+  ]},
+  {id:"INV-004",sub:"Summit Pipe Co.",trade:"Plumbing",project:"Downtown Retail Reno",
+   amount:4200,submitted:"Mar 28",due:"Apr 11",status:"paid",paidDate:"Apr 9",items:[
+    {desc:"Rough-in plumbing — retail unit",qty:1,rate:4200,total:4200},
+  ]},
+];
+
+const INV_STATUS = {
+  pending_approval:{color:"#FCD34D",bg:"#FCD34D18",label:"Awaiting Approval"},
+  approved:        {color:"#60A5FA",bg:"#60A5FA18",label:"Approved"},
+  disputed:        {color:"#F87171",bg:"#F8717118",label:"Disputed"},
+  paid:            {color:"#34D399",bg:"#34D39918",label:"Paid"},
+};
+
+function PayTrackerPage({mode,plan,requirePlan,setPage}) {
+  const[sel,setSel]=useState(null);
+  const[filter,setFilter]=useState("all");
+  const[showDispute,setShowDispute]=useState(false);
+  const[disputeText,setDisputeText]=useState("");
+  const[invoices,setInvoices]=useState(PAY_INVOICES);
+
+  const isGC=mode==="gc";
+  const filtered=filter==="all"?invoices:invoices.filter(i=>i.status===filter);
+
+  const totals={
+    pending:invoices.filter(i=>i.status==="pending_approval").reduce((a,i)=>a+i.amount,0),
+    approved:invoices.filter(i=>i.status==="approved").reduce((a,i)=>a+i.amount,0),
+    disputed:invoices.filter(i=>i.status==="disputed").reduce((a,i)=>a+i.amount,0),
+    paid:invoices.filter(i=>i.status==="paid").reduce((a,i)=>a+i.amount,0),
+  };
+
+  function approve(id){
+    if(!requirePlan("payApprove"))return;
+    setInvoices(p=>p.map(i=>i.id===id?{...i,status:"approved"}:i));
+    setSel(null);
+  }
+  function dispute(id){
+    if(!requirePlan("payApprove"))return;
+    setInvoices(p=>p.map(i=>i.id===id?{...i,status:"disputed",disputeReason:disputeText||"Under review."}:i));
+    setShowDispute(false);setDisputeText("");setSel(null);
+  }
+  function markPaid(id){
+    if(!requirePlan("payApprove"))return;
+    setInvoices(p=>p.map(i=>i.id===id?{...i,status:"paid",paidDate:"Today"}:i));
+    setSel(null);
+  }
+
+  if(sel) {
+    const st=INV_STATUS[sel.status];
+    const t=getTrade(sel.trade);
+    return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <DH onBack={()=>setSel(null)} title={sel.id} sub={`${sel.sub} · ${sel.project}`}
+        right={<span style={{background:st.bg,color:st.color,border:`1px solid ${st.color}40`,
+          borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>{st.label}</span>}/>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 18px 130px"}}>
+        {/* Amount hero */}
+        <div style={{background:C.card,border:`1.5px solid ${t.color}30`,borderRadius:16,
+          padding:"20px",marginBottom:16,textAlign:"center"}}>
+          <div style={{fontSize:11,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+            letterSpacing:"0.08em",marginBottom:6}}>Invoice Total</div>
+          <div style={{fontSize:38,fontWeight:800,color:C.accent,
+            fontFamily:"'IBM Plex Mono',monospace"}}>${sel.amount.toLocaleString()}</div>
+          <div style={{fontSize:13,color:C.txtSub,marginTop:4}}>Due {sel.due}</div>
+        </div>
+        {/* Meta */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          <IC label="📅 Submitted" value={sel.submitted}/>
+          <IC label="⏰ Due Date" value={sel.due} color={sel.status==="pending_approval"?C.amber:C.txt}/>
+          <IC label="🔧 Trade" value={sel.trade}/>
+          <IC label="📋 Project" value={sel.project}/>
+        </div>
+        {/* Dispute reason */}
+        {sel.disputeReason&&<div style={{background:C.redDim,border:`1px solid ${C.red}30`,
+          borderRadius:10,padding:"13px 14px",marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.red,marginBottom:4}}>⚠ Dispute Reason</div>
+          <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6}}>{sel.disputeReason}</div>
+        </div>}
+        {/* Line items */}
+        <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+          letterSpacing:"0.08em",marginBottom:10}}>Line Items</div>
+        {sel.items.map((item,i)=>(
+          <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,
+            borderRadius:10,padding:"12px 14px",marginBottom:8,
+            display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>{item.desc}</div>
+              {item.qty>1&&<div style={{fontSize:11,color:C.txtSub}}>{item.qty} × ${item.rate.toLocaleString()}</div>}
+            </div>
+            <div style={{fontSize:14,fontWeight:800,color:C.accent,
+              fontFamily:"'IBM Plex Mono',monospace",flexShrink:0}}>${item.total.toLocaleString()}</div>
+          </div>
+        ))}
+        {/* Prompt pay law notice */}
+        <div style={{background:C.blueDim,border:`1px solid ${C.blue}30`,borderRadius:10,
+          padding:"12px 14px",marginTop:8,display:"flex",gap:10,alignItems:"flex-start"}}>
+          <span style={{fontSize:16,flexShrink:0}}>⚖️</span>
+          <div style={{fontSize:12,color:C.txtSub,lineHeight:1.6}}>
+            <strong style={{color:C.txt}}>Prompt Pay Law:</strong> Most states require payment within 7–14 days of invoice approval. Withholding without a documented reason may forfeit your right to dispute.
+          </div>
+        </div>
+      </div>
+      {/* Action bar */}
+      {isGC&&<div style={{padding:"13px 18px 28px",background:C.surface,
+        borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+        {sel.status==="pending_approval"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <Btn v="reject" sm onClick={()=>setShowDispute(true)}>⚠ Dispute</Btn>
+            <Btn v="approve" sm onClick={()=>approve(sel.id)}>✓ Approve</Btn>
+          </div>
+        )}
+        {sel.status==="approved"&&(
+          <Btn v="primary" full sm onClick={()=>markPaid(sel.id)}>Mark as Paid →</Btn>
+        )}
+        {sel.status==="paid"&&(
+          <div style={{textAlign:"center",fontSize:14,color:C.green,fontWeight:700}}>
+            ✓ Paid {sel.paidDate}
+          </div>
+        )}
+        {(sel.status==="disputed"||sel.status==="approved")&&
+          <div style={{marginTop:10}}>
+            <Btn v="info" full sm onClick={()=>{if(!requirePlan("payExport"))return;alert("Exported!");}}>
+              {canAccess(plan,"pro")?"📤 Export PDF":"🔒 Export (Pro)"}
+            </Btn>
+          </div>}
+      </div>}
+      {/* Sub view action bar */}
+      {!isGC&&<div style={{padding:"13px 18px 28px",background:C.surface,
+        borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+        {sel.status==="disputed"&&<Btn v="amber" full sm>💬 Respond to Dispute</Btn>}
+        {sel.status==="paid"&&<Btn v="ghost" full sm onClick={()=>{if(!requirePlan("payHistory"))return;}}>
+          {canAccess(plan,"pro_sub")?"📥 Download Receipt":"🔒 Download (Pro Sub)"}
+        </Btn>}
+      </div>}
+      {/* Dispute sheet */}
+      {showDispute&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:300,
+        display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowDispute(false)}>
+        <div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:680,
+          padding:"0 20px 40px"}} onClick={e=>e.stopPropagation()}>
+          <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"12px auto 18px"}}/>
+          <div style={{fontWeight:800,fontSize:17,marginBottom:6}}>Dispute Invoice</div>
+          <div style={{fontSize:13,color:C.txtSub,marginBottom:14}}>
+            Provide a reason — the sub will be notified and can respond.
+          </div>
+          <textarea value={disputeText} onChange={e=>setDisputeText(e.target.value)}
+            placeholder="e.g. Scope discrepancy — contract specifies 12 units, invoice shows 14..."
+            rows={4} style={{width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,
+              borderRadius:10,padding:"12px 14px",color:C.txt,fontSize:14,
+              fontFamily:"'IBM Plex Sans',sans-serif",resize:"none",outline:"none",boxSizing:"border-box"}}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:14}}>
+            <Btn v="ghost" sm onClick={()=>setShowDispute(false)}>Cancel</Btn>
+            <Btn v="reject" sm onClick={()=>dispute(sel.id)}>Submit Dispute</Btn>
+          </div>
+        </div>
+      </div>}
+    </div>;
+  }
+
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <div style={{padding:"16px 18px 12px",background:C.surface,
+      borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:800}}>Pay Tracker</div>
+        {isGC&&canAccess(plan,"pro")&&(
+          <button style={{background:C.accentDim,color:C.accent,border:`1px solid ${C.accent}40`,
+            borderRadius:9,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",
+            fontFamily:"'IBM Plex Sans',sans-serif"}}>📤 Export</button>
+        )}
+        {isGC&&!canAccess(plan,"pro")&&(
+          <button onClick={()=>requirePlan("payExport")}
+            style={{background:C.border,color:C.txtSub,border:`1px solid ${C.border}`,
+              borderRadius:9,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif"}}>🔒 Export</button>
+        )}
+      </div>
+      {/* Summary */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
+        {[["Pending","pending",C.amber],["Approved","approved",C.blue],
+          ["Disputed","disputed",C.red],["Paid","paid",C.green]].map(([l,k,col])=>(
+          <div key={k} style={{background:col+"15",border:`1px solid ${col}30`,
+            borderRadius:10,padding:"9px 6px",textAlign:"center",cursor:"pointer",
+            outline:filter===k?`2px solid ${col}`:"none"}}
+            onClick={()=>setFilter(filter===k?"all":k)}>
+            <div style={{fontSize:14,fontWeight:800,color:col,
+              fontFamily:"'IBM Plex Mono',monospace"}}>${(totals[k]/1000).toFixed(0)}k</div>
+            <div style={{fontSize:9,color:C.txtSub,marginTop:2,fontWeight:600}}>{l}</div>
+          </div>
+        ))}
+      </div>
+      {/* Sub view upsell */}
+      {!isGC&&!canAccess(plan,"pro_sub")&&(
+        <div style={{background:C.accentDim,border:`1px solid ${C.accent}30`,borderRadius:10,
+          padding:"10px 14px",display:"flex",gap:8,alignItems:"center"}}>
+          <span>💳</span>
+          <div style={{flex:1,fontSize:12,color:C.txtSub}}>
+            <strong style={{color:C.accent}}>Pro Sub</strong> unlocks full payment history and invoice downloads for tax season.
+          </div>
+          <button onClick={()=>requirePlan("payHistory")}
+            style={{background:C.accent,color:"#000",border:"none",borderRadius:7,
+              padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>Unlock</button>
+        </div>
+      )}
+    </div>
+    <div style={{flex:1,overflowY:"auto",padding:"14px 18px 110px"}}>
+      {filtered.map(inv=>{
+        const st=INV_STATUS[inv.status];
+        const t=getTrade(inv.trade);
+        return <div key={inv.id} onClick={()=>setSel(inv)}
+          style={{background:C.card,border:`1.5px solid ${t.color}25`,borderRadius:14,
+            padding:"14px 16px",marginBottom:10,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}
+          onTouchStart={e=>{e.currentTarget.style.background=C.cardHi;}}
+          onTouchEnd={e=>{e.currentTarget.style.background=C.card;}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div style={{flex:1,marginRight:10}}>
+              <div style={{fontWeight:800,fontSize:15}}>{isGC?inv.sub:inv.project}</div>
+              <div style={{fontSize:12,color:C.txtSub,marginTop:1}}>{inv.id} · {inv.project}</div>
+            </div>
+            <span style={{background:st.bg,color:st.color,border:`1px solid ${st.color}40`,
+              borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,flexShrink:0}}>{st.label}</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <Pill trade={inv.trade}/>
+              <span style={{fontSize:12,color:C.txtSub}}>Due {inv.due}</span>
+            </div>
+            <div style={{fontSize:18,fontWeight:800,color:C.accent,
+              fontFamily:"'IBM Plex Mono',monospace"}}>${inv.amount.toLocaleString()}</div>
+          </div>
+          {/* Starter GC locked indicator */}
+          {isGC&&!canAccess(plan,"builder")&&inv.status==="pending_approval"&&(
+            <div style={{marginTop:10,background:C.border,borderRadius:8,padding:"8px 12px",
+              display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:12}}>🔒</span>
+              <span style={{fontSize:12,color:C.txtSub}}>Approve or dispute on Builder+</span>
+              <button onClick={e=>{e.stopPropagation();requirePlan("payApprove");}}
+                style={{marginLeft:"auto",background:C.blue,color:"#000",border:"none",borderRadius:6,
+                  padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",
+                  fontFamily:"'IBM Plex Sans',sans-serif"}}>Upgrade</button>
+            </div>
+          )}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// ─── DAILY LOG ────────────────────────────────────────────────────────────────
+const DAILY_LOGS = [
+  {id:"LOG-041",sub:"Garcia Electric LLC",trade:"Electrical",project:"Riverside Office Complex",
+   date:"Apr 13",crew:4,hours:32,weather:"Clear, 62°F",
+   notes:"Completed panel rough-in on floors 2–3. Started conduit runs in east wing. No delays.",
+   photos:["⚡","🔌","🏗️"],delays:null,materials:"12× conduit 3/4in, 4× junction boxes"},
+  {id:"LOG-040",sub:"Ironwood Framing Co.",trade:"Framing",project:"Maple Heights Residential",
+   date:"Apr 13",crew:6,hours:48,weather:"Partly cloudy, 58°F",
+   notes:"Framed units 3 and 4 exterior walls. Interior partition walls 70% complete on unit 3.",
+   photos:["🪵","🏠","🔨"],delays:"Delivery of LVL beams delayed by supplier — lost ~2hrs.",
+   materials:"240× 2×6 studs, 8× LVL beams"},
+  {id:"LOG-039",sub:"AirFlow Mech LLC",trade:"HVAC",project:"Riverside Office Complex",
+   date:"Apr 12",crew:3,hours:24,weather:"Clear, 65°F",
+   notes:"Installed 6 of 12 HVAC units on floors 1–2. Ductwork rough-in 40% complete.",
+   photos:["❄️","🌡️","🔧"],delays:null,materials:"6× rooftop units, ductwork per plan"},
+];
+
+function DailyLogPage({mode,plan,requirePlan}) {
+  const[sel,setSel]=useState(null);
+  const[showSubmit,setShowSubmit]=useState(false);
+  const[newLog,setNewLog]=useState({crew:"",hours:"",weather:"Clear",notes:"",delays:"",materials:""});
+  const[logs,setLogs]=useState(DAILY_LOGS);
+  const isGC=mode==="gc";
+  const set=k=>e=>setNewLog(f=>({...f,[k]:e.target.value}));
+
+  function submitLog(){
+    const log={id:"LOG-"+(logs.length+40),sub:"Marcus Reyes",trade:"Electrical",
+      project:"Riverside Office Complex",date:"Today",
+      crew:parseInt(newLog.crew)||1,hours:(parseInt(newLog.crew)||1)*8,
+      weather:newLog.weather,notes:newLog.notes,
+      photos:["📷","📷"],delays:newLog.delays||null,materials:newLog.materials};
+    setLogs(p=>[log,...p]);
+    setShowSubmit(false);
+    setNewLog({crew:"",hours:"",weather:"Clear",notes:"",delays:"",materials:""});
+  }
+
+  if(sel){
+    const t=getTrade(sel.trade);
+    return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <DH onBack={()=>setSel(null)} title={`Daily Log · ${sel.date}`} sub={`${sel.sub} · ${sel.project}`}/>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 18px 100px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          <IC label="👷 Crew on Site" value={`${sel.crew} workers`} color={C.accent}/>
+          <IC label="⏱ Total Hours" value={`${sel.hours} hrs`}/>
+          <IC label="🌤 Weather" value={sel.weather}/>
+          <IC label="🔧 Trade" value={sel.trade}/>
+        </div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,
+          padding:"14px",marginBottom:14}}>
+          <div style={{fontSize:11,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+            letterSpacing:"0.08em",marginBottom:8}}>Work Summary</div>
+          <div style={{fontSize:13,color:C.txtSub,lineHeight:1.7}}>{sel.notes}</div>
+        </div>
+        {sel.delays&&<div style={{background:C.amberDim,border:`1px solid ${C.amber}30`,
+          borderRadius:12,padding:"13px 14px",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.amber,marginBottom:4}}>⚠ Delays Reported</div>
+          <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6}}>{sel.delays}</div>
+        </div>}
+        {sel.materials&&<div style={{background:C.surface,border:`1px solid ${C.border}`,
+          borderRadius:12,padding:"13px 14px",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>📦 Materials Used</div>
+          <div style={{fontSize:13,color:C.txtSub}}>{sel.materials}</div>
+        </div>}
+        <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+          letterSpacing:"0.08em",marginBottom:10}}>Site Photos</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          {sel.photos.map((ph,i)=>(
+            <div key={i} style={{background:t.dim,border:`1px solid ${t.color}30`,
+              borderRadius:12,aspectRatio:"1",display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:28}}>{ph}</div>
+          ))}
+        </div>
+        {isGC&&canAccess(plan,"pro")&&<div style={{marginTop:16}}>
+          <Btn v="info" full sm>📊 Export Week Summary (Pro)</Btn>
+        </div>}
+        {isGC&&!canAccess(plan,"pro")&&<div style={{marginTop:16}}>
+          <Btn v="ghost" full sm onClick={()=>requirePlan("logExport")}>🔒 Export Summary (Pro)</Btn>
+        </div>}
+      </div>
+    </div>;
+  }
+
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <div style={{padding:"16px 18px 14px",background:C.surface,
+      borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div style={{fontSize:20,fontWeight:800}}>Daily Logs</div>
+        {!isGC&&<button onPointerDown={()=>setShowSubmit(true)}
+          style={{background:C.accent,color:"#000",border:"none",borderRadius:10,
+            padding:"9px 16px",fontWeight:700,fontSize:13,cursor:"pointer",
+            fontFamily:"'IBM Plex Sans',sans-serif"}}>+ Submit Log</button>}
+        {isGC&&canAccess(plan,"builder")&&<button onPointerDown={()=>requirePlan("logMandate")}
+          style={{background:C.blueDim,color:C.blue,border:`1px solid ${C.blue}40`,
+            borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:13,cursor:"pointer",
+            fontFamily:"'IBM Plex Sans',sans-serif"}}>⚙ Settings</button>}
+      </div>
+      <div style={{fontSize:13,color:C.txtSub}}>
+        {isGC?"Sub daily reports across all active projects.":"Submit end-of-day reports to your GC."}
+      </div>
+      {isGC&&!canAccess(plan,"builder")&&(
+        <div style={{marginTop:12,background:C.blueDim,border:`1px solid ${C.blue}30`,
+          borderRadius:10,padding:"10px 14px",display:"flex",gap:8,alignItems:"center"}}>
+          <span>📋</span>
+          <div style={{flex:1,fontSize:12,color:C.txtSub}}>
+            <strong style={{color:C.blue}}>Builder+</strong> lets you mandate daily logs and export weekly project summaries.
+          </div>
+          <button onPointerDown={()=>requirePlan("logMandate")}
+            style={{background:C.blue,color:"#000",border:"none",borderRadius:7,
+              padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>Unlock</button>
+        </div>
+      )}
+    </div>
+    <div style={{flex:1,overflowY:"auto",padding:"14px 18px 110px"}}>
+      {logs.map(log=>{
+        const t=getTrade(log.trade);
+        return <div key={log.id} onClick={()=>setSel(log)}
+          style={{background:C.card,border:`1.5px solid ${t.color}25`,borderRadius:14,
+            padding:"14px 16px",marginBottom:10,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}
+          onTouchStart={e=>{e.currentTarget.style.background=C.cardHi;}}
+          onTouchEnd={e=>{e.currentTarget.style.background=C.card;}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:15}}>{isGC?log.sub:"Today's Log"}</div>
+              <div style={{fontSize:12,color:C.txtSub,marginTop:1}}>{log.project} · {log.date}</div>
+            </div>
+            {log.delays&&<span style={{background:C.amberDim,color:C.amber,
+              border:`1px solid ${C.amber}30`,borderRadius:20,padding:"3px 10px",
+              fontSize:11,fontWeight:700,flexShrink:0}}>⚠ Delay</span>}
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+            <Pill trade={log.trade}/>
+            <span style={{fontSize:12,color:C.txtSub}}>👷 {log.crew} crew · ⏱ {log.hours}hrs</span>
+          </div>
+          <div style={{fontSize:12,color:C.txtSub,overflow:"hidden",textOverflow:"ellipsis",
+            whiteSpace:"nowrap"}}>{log.notes}</div>
+          <div style={{display:"flex",gap:4,marginTop:8}}>
+            {log.photos.map((p,i)=><span key={i} style={{fontSize:16}}>{p}</span>)}
+          </div>
+        </div>;
+      })}
+    </div>
+    {/* Submit log sheet */}
+    {showSubmit&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:300,
+      display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowSubmit(false)}>
+      <div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:680,
+        padding:"0 20px 40px",maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"12px auto 18px"}}/>
+        <div style={{fontWeight:800,fontSize:18,marginBottom:16}}>Submit Daily Log</div>
+        {[["Crew on Site","crew","e.g. 4","number"],["Weather","weather","e.g. Clear, 72°F"],
+          ["Materials Used","materials","e.g. 12× conduit, 4× boxes"]].map(([l,k,ph,tp])=>(
+          <div key={k} style={{marginBottom:14}}>
+            <div style={{fontSize:11,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:6}}>{l}</div>
+            <input type={tp||"text"} placeholder={ph} value={newLog[k]}
+              onChange={set(k)}
+              style={{width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,
+                borderRadius:10,padding:"11px 13px",color:C.txt,fontSize:14,
+                fontFamily:"'IBM Plex Sans',sans-serif",boxSizing:"border-box",outline:"none"}}/>
+          </div>
+        ))}
+        {[["Work Summary","notes","What did your crew accomplish today?"],
+          ["Delays (optional)","delays","Any delays, access issues, or blockers?"]].map(([l,k,ph])=>(
+          <div key={k} style={{marginBottom:14}}>
+            <div style={{fontSize:11,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:6}}>{l}</div>
+            <textarea placeholder={ph} value={newLog[k]} onChange={set(k)} rows={3}
+              style={{width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,
+                borderRadius:10,padding:"11px 13px",color:C.txt,fontSize:14,
+                fontFamily:"'IBM Plex Sans',sans-serif",resize:"none",outline:"none",
+                boxSizing:"border-box"}}/>
+          </div>
+        ))}
+        <div style={{background:"#111520",border:`1.5px dashed #252B45`,borderRadius:10,
+          padding:"14px",textAlign:"center",cursor:"pointer",marginBottom:16}}>
+          <div style={{fontSize:22,marginBottom:4}}>📷</div>
+          <div style={{fontSize:13,fontWeight:600,color:C.txt}}>Add Site Photos</div>
+          <div style={{fontSize:11,color:C.txtSub,marginTop:2}}>Up to 10 photos</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Btn v="ghost" sm onClick={()=>setShowSubmit(false)}>Cancel</Btn>
+          <Btn v="primary" sm onClick={submitLog}>Submit Log →</Btn>
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
+// ─── CHANGE ORDERS ────────────────────────────────────────────────────────────
+const CHANGE_ORDERS_DATA = [
+  {id:"CO-007",project:"Riverside Office Complex",sub:"Garcia Electric LLC",trade:"Electrical",
+   title:"Add EV Charging — Level 2 Upgrade",
+   description:"Owner requested upgrade from Level 2 to DC fast charge on all 8 EV stations. Requires heavier gauge wire, upgraded panels on floors 1–2, and permit amendment.",
+   originalScope:"Level 2 EV charging (8 stations)",
+   addedCost:6400,addedDays:3,submittedBy:"gc",status:"pending",date:"Apr 13",
+   lineItems:[
+     {desc:"DC fast charge equipment upgrade (8×)",total:3200},
+     {desc:"Heavier gauge wire (4/0 AWG, 240ft)",total:1800},
+     {desc:"Panel upgrade labor (2 days)",total:1400},
+   ]},
+  {id:"CO-006",project:"Maple Heights Residential",sub:"Ironwood Framing Co.",trade:"Framing",
+   title:"Add 2nd Floor Balcony Framing",
+   description:"Client added a 120 sq ft balcony to units 3 and 4. Requires additional framing, LVL beam, and ledger board connection to main structure.",
+   originalScope:"Standard 2-story framing per plan",
+   addedCost:4200,addedDays:2,submittedBy:"gc",status:"accepted",date:"Apr 10",
+   lineItems:[
+     {desc:"Balcony framing materials × 2 units",total:2400},
+     {desc:"LVL beam and hardware",total:800},
+     {desc:"Labor — 2 carpenters × 2 days",total:1000},
+   ]},
+  {id:"CO-005",project:"Riverside Office Complex",sub:"AirFlow Mech LLC",trade:"HVAC",
+   title:"Dispute: Unit Count Discrepancy",
+   description:"Sub invoiced for 14 HVAC units. Contract specifies 12. Requesting clarification and revised invoice before proceeding.",
+   originalScope:"12 HVAC units per mechanical plan",
+   addedCost:0,addedDays:0,submittedBy:"gc",status:"disputed",date:"Apr 5",
+   lineItems:[]},
+];
+
+function ChangeOrderPage({mode,plan,requirePlan}) {
+  const[sel,setSel]=useState(null);
+  const[showNew,setShowNew]=useState(false);
+  const[orders,setOrders]=useState(CHANGE_ORDERS_DATA);
+  const[newCO,setNewCO]=useState({title:"",description:"",addedCost:"",addedDays:""});
+  const isGC=mode==="gc";
+  const setN=k=>e=>setNewCO(f=>({...f,[k]:e.target.value}));
+
+  const CO_STATUS={
+    pending:{color:C.amber,bg:C.amberDim,label:"Awaiting Response"},
+    accepted:{color:C.green,bg:C.greenDim,label:"Accepted"},
+    disputed:{color:C.red,bg:C.redDim,label:"In Dispute"},
+    declined:{color:C.txtSub,bg:C.border,label:"Declined"},
+  };
+
+  function accept(id){setOrders(p=>p.map(o=>o.id===id?{...o,status:"accepted"}:o));setSel(null);}
+  function decline(id){setOrders(p=>p.map(o=>o.id===id?{...o,status:"declined"}:o));setSel(null);}
+  function submitNew(){
+    if(!requirePlan("changeOrderInit"))return;
+    const co={id:"CO-00"+(orders.length+8),project:"Riverside Office Complex",
+      sub:"Garcia Electric LLC",trade:"Electrical",
+      title:newCO.title,description:newCO.description,
+      addedCost:parseInt(newCO.addedCost)||0,addedDays:parseInt(newCO.addedDays)||0,
+      submittedBy:"gc",status:"pending",date:"Today",lineItems:[]};
+    setOrders(p=>[co,...p]);
+    setShowNew(false);setNewCO({title:"",description:"",addedCost:"",addedDays:""});
+  }
+
+  if(sel){
+    const st=CO_STATUS[sel.status];
+    const t=getTrade(sel.trade);
+    return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <DH onBack={()=>setSel(null)} title={sel.id}
+        sub={`${sel.project} · ${sel.sub}`}
+        right={<span style={{background:st.bg,color:st.color,border:`1px solid ${st.color}40`,
+          borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>{st.label}</span>}/>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 18px 130px"}}>
+        <div style={{fontWeight:800,fontSize:17,marginBottom:8}}>{sel.title}</div>
+        <div style={{fontSize:14,color:C.txtSub,lineHeight:1.7,marginBottom:16}}>{sel.description}</div>
+        {(sel.addedCost>0||sel.addedDays>0)&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+            {sel.addedCost>0&&<IC label="💰 Added Cost" value={`+$${sel.addedCost.toLocaleString()}`} color={C.amber}/>}
+            {sel.addedDays>0&&<IC label="📅 Added Days" value={`+${sel.addedDays} days`} color={C.blue}/>}
+            <IC label="📋 Original Scope" value={sel.originalScope}/>
+            <IC label="📅 Submitted" value={sel.date}/>
+          </div>
+        )}
+        {sel.lineItems.length>0&&<>
+          <div style={{fontSize:12,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+            letterSpacing:"0.08em",marginBottom:10}}>Line Items</div>
+          {sel.lineItems.map((item,i)=>(
+            <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,
+              borderRadius:10,padding:"11px 14px",marginBottom:8,
+              display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:13,color:C.txtSub}}>{item.desc}</span>
+              <span style={{fontSize:14,fontWeight:700,color:C.accent,
+                fontFamily:"'IBM Plex Mono',monospace"}}>${item.total.toLocaleString()}</span>
+            </div>
+          ))}
+          <div style={{background:C.card,border:`1.5px solid ${C.accent}40`,borderRadius:10,
+            padding:"12px 14px",display:"flex",justifyContent:"space-between",marginTop:4}}>
+            <span style={{fontWeight:700}}>Total Change</span>
+            <span style={{fontSize:16,fontWeight:800,color:C.accent,
+              fontFamily:"'IBM Plex Mono',monospace"}}>+${sel.addedCost.toLocaleString()}</span>
+          </div>
+        </>}
+      </div>
+      <div style={{padding:"13px 18px 28px",background:C.surface,
+        borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+        {!isGC&&sel.status==="pending"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Btn v="reject" sm onClick={()=>decline(sel.id)}>✕ Decline</Btn>
+            <Btn v="approve" sm onClick={()=>accept(sel.id)}>✓ Accept</Btn>
+          </div>
+        )}
+        {sel.status==="accepted"&&<div style={{textAlign:"center",color:C.green,fontWeight:700,fontSize:14}}>✓ Accepted {sel.date}</div>}
+        {sel.status==="disputed"&&<Btn v="amber" full sm>💬 Open Discussion</Btn>}
+      </div>
+    </div>;
+  }
+
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <div style={{padding:"16px 18px 14px",background:C.surface,
+      borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div style={{fontSize:20,fontWeight:800}}>Change Orders</div>
+        {isGC&&<button onPointerDown={()=>{if(!requirePlan("changeOrderInit"))return;setShowNew(true);}}
+          style={{background:canAccess(plan,"builder")?C.accent:C.border,
+            color:canAccess(plan,"builder")?"#000":C.txtMuted,
+            border:"none",borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:13,
+            cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
+          {canAccess(plan,"builder")?"+ New CO":"🔒 New CO"}
+        </button>}
+      </div>
+      <div style={{fontSize:13,color:C.txtSub}}>Formal scope changes between GCs and subs.</div>
+      {!canAccess(plan,isGC?"builder":"free")&&isGC&&(
+        <div style={{marginTop:12,background:C.blueDim,border:`1px solid ${C.blue}30`,
+          borderRadius:10,padding:"10px 14px",display:"flex",gap:8,alignItems:"center"}}>
+          <span>📝</span>
+          <div style={{flex:1,fontSize:12,color:C.txtSub}}>
+            <strong style={{color:C.blue}}>Builder+</strong> lets you initiate formal change orders. Free GCs can view incoming ones.
+          </div>
+          <button onPointerDown={()=>requirePlan("changeOrderInit")}
+            style={{background:C.blue,color:"#000",border:"none",borderRadius:7,
+              padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>Unlock</button>
+        </div>
+      )}
+    </div>
+    <div style={{flex:1,overflowY:"auto",padding:"14px 18px 110px"}}>
+      {orders.map(co=>{
+        const st=CO_STATUS[co.status];
+        const t=getTrade(co.trade);
+        return <div key={co.id} onClick={()=>setSel(co)}
+          style={{background:C.card,border:`1.5px solid ${t.color}25`,borderRadius:14,
+            padding:"14px 16px",marginBottom:10,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}
+          onTouchStart={e=>{e.currentTarget.style.background=C.cardHi;}}
+          onTouchEnd={e=>{e.currentTarget.style.background=C.card;}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div style={{flex:1,marginRight:10}}>
+              <div style={{fontWeight:800,fontSize:15}}>{co.title}</div>
+              <div style={{fontSize:12,color:C.txtSub,marginTop:1}}>{co.id} · {co.project}</div>
+            </div>
+            <span style={{background:st.bg,color:st.color,border:`1px solid ${st.color}40`,
+              borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,flexShrink:0}}>{st.label}</span>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <Pill trade={co.trade}/>
+            {co.addedCost>0&&<span style={{fontSize:13,color:C.amber,fontWeight:700}}>+${co.addedCost.toLocaleString()}</span>}
+            {co.addedDays>0&&<span style={{fontSize:12,color:C.blue}}>+{co.addedDays}d</span>}
+            <span style={{fontSize:11,color:C.txtSub,marginLeft:"auto"}}>{co.date}</span>
+          </div>
+        </div>;
+      })}
+    </div>
+    {/* New CO sheet */}
+    {showNew&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:300,
+      display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowNew(false)}>
+      <div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:680,
+        padding:"0 20px 40px",maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"12px auto 18px"}}/>
+        <div style={{fontWeight:800,fontSize:18,marginBottom:16}}>New Change Order</div>
+        {[["Title","title","e.g. Add EV Charging Upgrade"],
+          ["Description","description","Describe the scope change in detail..."]].map(([l,k,ph])=>(
+          <div key={k} style={{marginBottom:14}}>
+            <div style={{fontSize:11,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:6}}>{l}</div>
+            {k==="description"
+              ?<textarea placeholder={ph} value={newCO[k]} onChange={setN(k)} rows={3}
+                style={{width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,
+                  borderRadius:10,padding:"11px 13px",color:C.txt,fontSize:14,
+                  fontFamily:"'IBM Plex Sans',sans-serif",resize:"none",outline:"none",boxSizing:"border-box"}}/>
+              :<input placeholder={ph} value={newCO[k]} onChange={setN(k)}
+                style={{width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,
+                  borderRadius:10,padding:"11px 13px",color:C.txt,fontSize:14,
+                  fontFamily:"'IBM Plex Sans',sans-serif",outline:"none",boxSizing:"border-box"}}/>}
+          </div>
+        ))}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+          {[["Added Cost ($)","addedCost","0"],["Added Days","addedDays","0"]].map(([l,k,ph])=>(
+            <div key={k}>
+              <div style={{fontSize:11,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+                letterSpacing:"0.08em",marginBottom:6}}>{l}</div>
+              <input type="number" placeholder={ph} value={newCO[k]} onChange={setN(k)}
+                style={{width:"100%",background:C.surface,border:`1.5px solid ${C.border}`,
+                  borderRadius:10,padding:"11px 13px",color:C.txt,fontSize:14,
+                  fontFamily:"'IBM Plex Sans',sans-serif",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Btn v="ghost" sm onClick={()=>setShowNew(false)}>Cancel</Btn>
+          <Btn v="primary" sm onClick={submitNew}>Send CO →</Btn>
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
+// ─── CREW FORECASTER ──────────────────────────────────────────────────────────
+const FORECAST_DATA = {
+  trades: ["Electrical","Plumbing","HVAC","Framing","Roofing","Concrete","Drywall"],
+  weeks: [
+    {label:"Apr 14",short:"W1"},
+    {label:"Apr 21",short:"W2"},
+    {label:"Apr 28",short:"W3"},
+    {label:"May 5", short:"W4"},
+    {label:"May 12",short:"W5"},
+    {label:"May 19",short:"W6"},
+    {label:"May 26",short:"W7"},
+    {label:"Jun 2", short:"W8"},
+    {label:"Jun 9", short:"W9"},
+    {label:"Jun 16",short:"W10"},
+    {label:"Jun 23",short:"W11"},
+    {label:"Jun 30",short:"W12"},
+    {label:"Jul 7", short:"W13"},
+  ],
+  // availability score 0-100 per trade per week (higher = more available)
+  availability: {
+    Electrical: [45,40,55,60,72,80,65,58,50,45,60,70,68],
+    Plumbing:   [70,65,60,55,50,60,75,80,78,70,65,60,55],
+    HVAC:       [30,25,20,35,50,65,70,60,55,45,40,50,60],
+    Framing:    [80,75,70,60,55,50,45,60,70,75,80,78,72],
+    Roofing:    [60,65,70,75,80,78,70,60,50,45,55,65,70],
+    Concrete:   [55,60,65,70,72,68,60,55,50,60,70,75,72],
+    Drywall:    [75,70,65,60,55,60,70,80,78,72,68,65,60],
+  }
+};
+
+function getAvailColor(score) {
+  if (score >= 70) return {color:"#34D399",bg:"#34D39925",label:"High"};
+  if (score >= 45) return {color:"#FCD34D",bg:"#FCD34D25",label:"Moderate"};
+  return {color:"#F87171",bg:"#F8717125",label:"Tight"};
+}
+
+function CrewForecastPage({plan,requirePlan}) {
+  const[selTrade,setSelTrade]=useState(null);
+  const[view,setView]=useState("grid"); // grid | chart
+
+  // Gate: Starter = current week only (1 col), Builder = 30d (4 cols), Pro = 90d (13 cols)
+  const visibleWeeks = canAccess(plan,"pro") ? 13
+    : canAccess(plan,"builder") ? 4 : 1;
+
+  const fd = FORECAST_DATA;
+
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <div style={{padding:"16px 18px 12px",background:C.surface,
+      borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div style={{fontSize:20,fontWeight:800}}>Crew Forecaster</div>
+        <div style={{display:"flex",gap:6}}>
+          {["grid","chart"].map(v=>(
+            <button key={v} onPointerDown={()=>setView(v)}
+              style={{background:view===v?C.accentDim:C.card,color:view===v?C.accent:C.txtSub,
+                border:`1px solid ${view===v?C.accent+"50":C.border}`,borderRadius:8,
+                padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",
+                fontFamily:"'IBM Plex Sans',sans-serif",textTransform:"capitalize"}}>{v}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{fontSize:13,color:C.txtSub,marginBottom:10}}>
+        Trade availability in your region — Colorado Front Range
+      </div>
+      {/* Range indicator */}
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <span style={{fontSize:12,color:C.txtSub}}>Showing:</span>
+        {[
+          {label:"This week",plan:"starter",weeks:1},
+          {label:"30 days",plan:"builder",weeks:4},
+          {label:"90 days",plan:"pro",weeks:13},
+        ].map(opt=>{
+          const active=visibleWeeks===opt.weeks;
+          const accessible=canAccess(plan,opt.plan);
+          return <button key={opt.plan}
+            onPointerDown={()=>{if(!accessible)requirePlan(opt.plan==="builder"?"forecast30":"forecast90");}}
+            style={{background:active?C.accentDim:accessible?C.card:C.border,
+              color:active?C.accent:accessible?C.txtSub:C.txtMuted,
+              border:`1px solid ${active?C.accent+"50":C.border}`,
+              borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif",
+              display:"flex",alignItems:"center",gap:4}}>
+            {!accessible&&<span style={{fontSize:10}}>🔒</span>}{opt.label}
+          </button>;
+        })}
+      </div>
+    </div>
+
+    <div style={{flex:1,overflowY:"auto",padding:"14px 18px 110px"}}>
+
+      {view==="grid"&&<div>
+        {/* Legend */}
+        <div style={{display:"flex",gap:12,marginBottom:16}}>
+          {[["#34D399","High availability"],["#FCD34D","Moderate"],["#F87171","Tight"]].map(([c,l])=>(
+            <div key={l} style={{display:"flex",alignItems:"center",gap:5}}>
+              <div style={{width:10,height:10,borderRadius:2,background:c}}/><span style={{fontSize:11,color:C.txtSub}}>{l}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Header row */}
+        <div style={{display:"grid",
+          gridTemplateColumns:`120px repeat(${visibleWeeks},1fr)`,
+          gap:4,marginBottom:6}}>
+          <div style={{fontSize:11,color:C.txtSub,fontWeight:700}}>Trade</div>
+          {fd.weeks.slice(0,visibleWeeks).map((w,i)=>(
+            <div key={i} style={{fontSize:10,color:C.txtSub,textAlign:"center",fontWeight:600}}>{w.short}</div>
+          ))}
+        </div>
+
+        {/* Trade rows */}
+        {fd.trades.map(trade=>{
+          const t=getTrade(trade);
+          const scores=fd.availability[trade];
+          return <div key={trade} style={{display:"grid",
+            gridTemplateColumns:`120px repeat(${visibleWeeks},1fr)`,
+            gap:4,marginBottom:6,alignItems:"center"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}
+              onClick={()=>setSelTrade(selTrade===trade?null:trade)}>
+              <span style={{fontSize:14}}>{t.icon}</span>
+              <span style={{fontSize:12,fontWeight:600,color:selTrade===trade?t.color:C.txt}}>{trade}</span>
+            </div>
+            {scores.slice(0,visibleWeeks).map((score,i)=>{
+              const av=getAvailColor(score);
+              return <div key={i}
+                style={{background:av.bg,border:`1px solid ${av.color}40`,borderRadius:6,
+                  height:36,display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:10,fontWeight:700,color:av.color}}>
+                {score}%
+              </div>;
+            })}
+            {/* Locked columns */}
+            {visibleWeeks<13&&Array.from({length:Math.min(4-visibleWeeks,9)}).map((_,i)=>(
+              <div key={"lock"+i} style={{background:C.border+"40",borderRadius:6,height:36,
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:C.txtSub,
+                cursor:"pointer"}} onClick={()=>requirePlan("forecast30")}>🔒</div>
+            ))}
+          </div>;
+        })}
+
+        {/* Locked range upsell */}
+        {!canAccess(plan,"builder")&&(
+          <div style={{background:C.blueDim,border:`1.5px solid ${C.blue}40`,borderRadius:14,
+            padding:"16px 18px",marginTop:16,display:"flex",gap:14,alignItems:"center"}}>
+            <span style={{fontSize:28}}>📅</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:800,fontSize:14,color:C.blue,marginBottom:3}}>See 30 days ahead</div>
+              <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6}}>
+                Builder+ unlocks the 30-day forecast. Pro unlocks the full 90-day view — plan projects around real labor supply before you commit to a client.
+              </div>
+            </div>
+            <button onPointerDown={()=>requirePlan("forecast30")}
+              style={{background:C.blue,color:"#000",border:"none",borderRadius:9,
+                padding:"10px 14px",fontSize:13,fontWeight:800,cursor:"pointer",
+                fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>Unlock →</button>
+          </div>
+        )}
+        {canAccess(plan,"builder")&&!canAccess(plan,"pro")&&(
+          <div style={{background:C.goldDim,border:`1.5px solid ${C.gold}40`,borderRadius:14,
+            padding:"16px 18px",marginTop:16,display:"flex",gap:14,alignItems:"center"}}>
+            <span style={{fontSize:28}}>🔭</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:800,fontSize:14,color:C.gold,marginBottom:3}}>See 90 days ahead</div>
+              <div style={{fontSize:13,color:C.txtSub,lineHeight:1.6}}>
+                Pro unlocks the full 90-day forecast with trade density heatmap overlay.
+              </div>
+            </div>
+            <button onPointerDown={()=>requirePlan("forecast90")}
+              style={{background:C.gold,color:"#000",border:"none",borderRadius:9,
+                padding:"10px 14px",fontSize:13,fontWeight:800,cursor:"pointer",
+                fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>Upgrade →</button>
+          </div>
+        )}
+      </div>}
+
+      {view==="chart"&&<div>
+        {fd.trades.map(trade=>{
+          const t=getTrade(trade);
+          const scores=fd.availability[trade].slice(0,visibleWeeks);
+          const max=Math.max(...scores);
+          return <div key={trade} style={{background:C.card,border:`1.5px solid ${t.color}25`,
+            borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <span style={{fontSize:18}}>{t.icon}</span>
+              <span style={{fontWeight:700,fontSize:14}}>{trade}</span>
+              <span style={{fontSize:12,color:C.txtSub,marginLeft:"auto"}}>
+                Avg: {Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)}%
+              </span>
+            </div>
+            <div style={{display:"flex",gap:3,alignItems:"flex-end",height:48}}>
+              {scores.map((score,i)=>{
+                const av=getAvailColor(score);
+                return <div key={i} style={{flex:1,background:av.color,borderRadius:"2px 2px 0 0",
+                  height:`${(score/100)*48}px`,minHeight:4,transition:"height 0.3s"}}
+                  title={`${fd.weeks[i].label}: ${score}%`}/>;
+              })}
+              {visibleWeeks<5&&<div style={{flex:4,background:C.border+"40",borderRadius:4,
+                height:24,display:"flex",alignItems:"center",justifyContent:"center",
+                cursor:"pointer",fontSize:10,color:C.txtSub}}
+                onClick={()=>requirePlan("forecast30")}>🔒 Unlock more</div>}
+            </div>
+            <div style={{display:"flex",gap:3,marginTop:4}}>
+              {scores.map((_,i)=>(
+                <div key={i} style={{flex:1,fontSize:8,color:C.txtSub,textAlign:"center"}}>
+                  {fd.weeks[i].short}
+                </div>
+              ))}
+            </div>
+          </div>;
+        })}
+      </div>}
+    </div>
+  </div>;
+}
+
+// ─── JOB HEATMAP ─────────────────────────────────────────────────────────────
+const MAP_JOBS = [
+  // Colorado Front Range mock job locations
+  // {id, name, type:"active"|"hiring"|"draft", trade, value, x, y (% on map), openings, budget}
+  {id:1,  name:"Riverside Office Complex",  type:"active",  trade:"Electrical", x:48, y:44, openings:3, budget:"$2.4M", city:"Denver"},
+  {id:2,  name:"Maple Heights Residential", type:"hiring",  trade:"Framing",    x:54, y:38, openings:5, budget:"$850K", city:"Aurora"},
+  {id:3,  name:"Downtown Retail Reno",      type:"active",  trade:"Electrical", x:38, y:28, openings:1, budget:"$320K", city:"Boulder"},
+  {id:4,  name:"Westfield Industrial",      type:"draft",   trade:"Concrete",   x:42, y:48, openings:8, budget:"$5.1M", city:"Lakewood"},
+  {id:5,  name:"Thornton Mixed-Use Dev",    type:"hiring",  trade:"Plumbing",   x:50, y:32, openings:4, budget:"$1.8M", city:"Thornton"},
+  {id:6,  name:"Castle Rock Residential",   type:"active",  trade:"Roofing",    x:52, y:62, openings:2, budget:"$640K", city:"Castle Rock"},
+  {id:7,  name:"Broomfield Tech Campus",    type:"hiring",  trade:"HVAC",       x:44, y:30, openings:6, budget:"$3.2M", city:"Broomfield"},
+  {id:8,  name:"Loveland Warehouse",        type:"active",  trade:"Masonry",    x:46, y:18, openings:2, budget:"$920K", city:"Loveland"},
+  {id:9,  name:"Parker ADU Project",        type:"hiring",  trade:"Framing",    x:60, y:54, openings:3, budget:"$280K", city:"Parker"},
+  {id:10, name:"Englewood Renovation",      type:"active",  trade:"Painting",   x:48, y:50, openings:1, budget:"$190K", city:"Englewood"},
+  {id:11, name:"Fort Collins Office",       type:"hiring",  trade:"Electrical", x:43, y:10, openings:4, budget:"$1.1M", city:"Fort Collins"},
+  {id:12, name:"Centennial High-Rise",      type:"active",  trade:"Concrete",   x:51, y:52, openings:7, budget:"$8.4M", city:"Centennial"},
+  {id:13, name:"Westminster Retail",        type:"draft",   trade:"Flooring",   x:46, y:34, openings:2, budget:"$450K", city:"Westminster"},
+  {id:14, name:"Arvada Single Family",      type:"hiring",  trade:"Roofing",    x:40, y:40, openings:3, budget:"$380K", city:"Arvada"},
+  {id:15, name:"Longmont Industrial",       type:"active",  trade:"HVAC",       x:38, y:20, openings:5, budget:"$2.1M", city:"Longmont"},
+];
+
+const JOB_TYPE_COLOR = {
+  active:  {dot:"#34D399", ring:"#34D39940", label:"Active",  bg:"#34D39918"},
+  hiring:  {dot:"#FCD34D", ring:"#FCD34D40", label:"Hiring",  bg:"#FCD34D18"},
+  draft:   {dot:"#6B7299", ring:"#6B729940", label:"Draft",   bg:"#6B729918"},
+};
+
+function HeatmapPage({mode}) {
+  const[selected,setSelected]=useState(null);
+  const[tradeFilter,setTradeFilter]=useState("All");
+  const[typeFilter,setTypeFilter]=useState("All");
+  const[showList,setShowList]=useState(false);
+
+  const trades=[...new Set(MAP_JOBS.map(j=>j.trade))];
+  const filtered=MAP_JOBS.filter(j=>{
+    if(tradeFilter!=="All"&&j.trade!==tradeFilter)return false;
+    if(typeFilter!=="All"&&j.type!==typeFilter)return false;
+    return true;
+  });
+
+  const activeCount=filtered.filter(j=>j.type==="active").length;
+  const hiringCount=filtered.filter(j=>j.type==="hiring").length;
+  const totalOpenings=filtered.reduce((a,j)=>a+j.openings,0);
+
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    {/* Header */}
+    <div style={{padding:"16px 18px 12px",background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:800}}>Job Map</div>
+          <div style={{fontSize:13,color:C.txtSub,marginTop:2}}>Colorado Front Range · {filtered.length} projects</div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setShowList(!showList)}
+            style={{background:showList?C.accentDim:C.card,color:showList?C.accent:C.txtSub,
+              border:`1px solid ${showList?C.accent+"50":C.border}`,borderRadius:9,
+              padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif"}}>
+            {showList?"🗺️ Map":"📋 List"}
+          </button>
+        </div>
+      </div>
+
+      {/* Summary stats */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+        {[
+          {label:"Active",value:activeCount,color:C.green},
+          {label:"Hiring",value:hiringCount,color:C.amber},
+          {label:"Open Roles",value:totalOpenings,color:C.blue},
+        ].map(s=>(
+          <div key={s.label} style={{background:C.card,border:`1px solid ${s.color}30`,borderRadius:10,
+            padding:"9px 10px",textAlign:"center"}}>
+            <div style={{fontSize:20,fontWeight:800,color:s.color,fontFamily:"'IBM Plex Mono',monospace"}}>{s.value}</div>
+            <div style={{fontSize:11,color:C.txtSub,marginTop:2}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{display:"flex",gap:8,overflowX:"auto",WebkitOverflowScrolling:"touch",paddingBottom:2}}>
+        {["All","active","hiring","draft"].map(f=>(
+          <button key={f} onClick={()=>setTypeFilter(f)}
+            style={{flexShrink:0,background:typeFilter===f?(f==="All"?C.accentDim:JOB_TYPE_COLOR[f]?.bg||C.accentDim):C.card,
+              color:typeFilter===f?(f==="All"?C.accent:JOB_TYPE_COLOR[f]?.dot||C.accent):C.txtSub,
+              border:`1.5px solid ${typeFilter===f?(f==="All"?C.accent+"60":JOB_TYPE_COLOR[f]?.dot+"60"||C.accent+"60"):C.border}`,
+              borderRadius:20,padding:"6px 13px",fontSize:12,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",
+              textTransform:"capitalize"}}>
+            {f==="All"?"All Types":JOB_TYPE_COLOR[f]?.label||f}
+          </button>
+        ))}
+        <div style={{width:1,background:C.border,flexShrink:0}}/>
+        {["All",...trades.slice(0,4)].map(t=>{
+          const td=t==="All"?null:getTrade(t);const on=tradeFilter===t;
+          return <button key={t} onClick={()=>setTradeFilter(t)}
+            style={{flexShrink:0,display:"inline-flex",alignItems:"center",gap:4,
+              background:on?(td?td.dim:C.accentDim):C.card,color:on?(td?td.color:C.accent):C.txtSub,
+              border:`1.5px solid ${on?(td?td.color+"60":C.accent+"60"):C.border}`,
+              borderRadius:20,padding:"6px 13px",fontSize:12,fontWeight:700,cursor:"pointer",
+              fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
+            {td&&<span>{td.icon}</span>}{t}
+          </button>;
+        })}
+      </div>
+    </div>
+
+    {/* Map or List view */}
+    <div style={{flex:1,overflow:"hidden",position:"relative"}}>
+      {!showList ? (
+        // ── MAP VIEW ──
+        <div style={{width:"100%",height:"100%",position:"relative",background:"#0A0E1A",overflow:"hidden"}}>
+          {/* Stylized grid map background */}
+          <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0.12}} viewBox="0 0 100 100" preserveAspectRatio="none">
+            {/* Grid lines */}
+            {[10,20,30,40,50,60,70,80,90].map(v=><>
+              <line key={"h"+v} x1="0" y1={v} x2="100" y2={v} stroke={C.accent} strokeWidth="0.3"/>
+              <line key={"v"+v} x1={v} y1="0" x2={v} y2="100" stroke={C.accent} strokeWidth="0.3"/>
+            </>)}
+          </svg>
+
+          {/* Density heatmap blobs */}
+          <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0.15}} viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+              <radialGradient id="hb1" cx="50%" cy="50%"><stop offset="0%" stopColor="#FCD34D" stopOpacity="1"/><stop offset="100%" stopColor="#FCD34D" stopOpacity="0"/></radialGradient>
+              <radialGradient id="hb2" cx="50%" cy="50%"><stop offset="0%" stopColor="#34D399" stopOpacity="1"/><stop offset="100%" stopColor="#34D399" stopOpacity="0"/></radialGradient>
+              <radialGradient id="hb3" cx="50%" cy="50%"><stop offset="0%" stopColor="#60A5FA" stopOpacity="1"/><stop offset="100%" stopColor="#60A5FA" stopOpacity="0"/></radialGradient>
+            </defs>
+            {/* High density blobs around Denver area */}
+            <ellipse cx="49" cy="46" rx="14" ry="12" fill="url(#hb1)" opacity="0.8"/>
+            <ellipse cx="44" cy="32" rx="10" ry="8"  fill="url(#hb2)" opacity="0.7"/>
+            <ellipse cx="52" cy="52" rx="8"  ry="7"  fill="url(#hb3)" opacity="0.6"/>
+            <ellipse cx="38" cy="27" rx="8"  ry="6"  fill="url(#hb1)" opacity="0.5"/>
+          </svg>
+
+          {/* City labels */}
+          {[
+            {name:"Fort Collins",x:43,y:9},{name:"Loveland",x:45,y:18},
+            {name:"Boulder",x:37,y:27},{name:"Broomfield",x:44,y:30},
+            {name:"Thornton",x:51,y:31},{name:"Westminster",x:46,y:34},
+            {name:"Arvada",x:40,y:39},{name:"DENVER",x:50,y:43,bold:true},
+            {name:"Aurora",x:56,y:38},{name:"Lakewood",x:42,y:47},
+            {name:"Englewood",x:49,y:50},{name:"Centennial",x:52,y:52},
+            {name:"Parker",x:61,y:54},{name:"Castle Rock",x:53,y:62},
+          ].map(c=>(
+            <div key={c.name} style={{position:"absolute",left:`${c.x}%`,top:`${c.y}%`,
+              transform:"translateX(-50%)",fontSize:c.bold?10:8,
+              color:c.bold?"#6EE7B7":"#3A3F5C",fontWeight:c.bold?800:500,
+              fontFamily:"'IBM Plex Mono',monospace",pointerEvents:"none",
+              letterSpacing:c.bold?"0.1em":"0",whiteSpace:"nowrap"}}>
+              {c.name}
+            </div>
+          ))}
+
+          {/* Roads suggestion lines */}
+          <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0.08,pointerEvents:"none"}} viewBox="0 0 100 100" preserveAspectRatio="none">
+            {/* I-25 north-south */}
+            <path d="M 50 5 L 50 10 L 49 18 L 49 28 L 49 35 L 49 43 L 50 50 L 51 60 L 52 70" stroke={C.accent} strokeWidth="1.2" fill="none"/>
+            {/* I-70 east-west */}
+            <path d="M 20 45 L 30 44 L 40 44 L 50 44 L 60 45 L 70 46 L 80 47" stroke={C.accent} strokeWidth="1.2" fill="none"/>
+            {/* US-36 Boulder spur */}
+            <path d="M 37 27 L 41 32 L 45 36 L 49 40" stroke={C.accent} strokeWidth="0.8" fill="none" strokeDasharray="2,1"/>
+          </svg>
+
+          {/* Job pins */}
+          {filtered.map(job=>{
+            const jc=JOB_TYPE_COLOR[job.type];
+            const t=getTrade(job.trade);
+            const isSel=selected?.id===job.id;
+            const size=job.openings>5?22:job.openings>2?18:14;
+            return (
+              <div key={job.id} onClick={()=>setSelected(isSel?null:job)}
+                style={{position:"absolute",left:`${job.x}%`,top:`${job.y}%`,
+                  transform:"translate(-50%,-50%)",cursor:"pointer",
+                  WebkitTapHighlightColor:"transparent",zIndex:isSel?20:10}}>
+                {/* Pulse ring on selected */}
+                {isSel&&<div style={{position:"absolute",inset:-8,borderRadius:"50%",
+                  border:`2px solid ${jc.dot}`,opacity:0.6,
+                  animation:"pulse 1.5s ease-in-out infinite"}}/>}
+                {/* Outer ring */}
+                <div style={{width:size+8,height:size+8,borderRadius:"50%",
+                  background:jc.ring,border:`1.5px solid ${jc.dot}50`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  boxShadow:isSel?`0 0 16px ${jc.dot}80`:`0 0 6px ${jc.dot}40`,
+                  transition:"all 0.15s"}}>
+                  {/* Inner dot */}
+                  <div style={{width:size,height:size,borderRadius:"50%",
+                    background:jc.dot,display:"flex",alignItems:"center",
+                    justifyContent:"center",fontSize:size*0.45}}>
+                    {getTrade(job.trade).icon}
+                  </div>
+                </div>
+                {/* Opening count badge */}
+                {job.openings>1&&<div style={{position:"absolute",top:-4,right:-4,
+                  width:16,height:16,borderRadius:"50%",background:C.blue,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:9,fontWeight:800,color:"#fff",
+                  border:`1.5px solid ${C.bg}`}}>{job.openings}</div>}
+              </div>
+            );
+          })}
+
+          {/* Selected job callout */}
+          {selected&&(()=>{
+            const jc=JOB_TYPE_COLOR[selected.type];
+            const t=getTrade(selected.trade);
+            // Position callout above or below pin
+            const above=selected.y>60;
+            return (
+              <div style={{position:"absolute",left:`${selected.x}%`,
+                top:above?`${selected.y-3}%`:`${selected.y+3}%`,
+                transform:above?"translate(-50%,-100%)":"translate(-50%,0)",
+                background:C.card,border:`1.5px solid ${jc.dot}60`,
+                borderRadius:14,padding:"12px 14px",minWidth:200,maxWidth:240,
+                zIndex:30,boxShadow:`0 8px 24px #00000080`}}
+                onClick={e=>e.stopPropagation()}>
+                <div style={{position:"absolute",left:"50%",
+                  [above?"bottom":"top"]:"-7px",transform:"translateX(-50%)",
+                  width:14,height:14,background:C.card,
+                  border:`1.5px solid ${jc.dot}60`,
+                  borderRadius:2,
+                  clipPath:above?"polygon(0 0,100% 0,50% 100%)":"polygon(50% 0,0 100%,100% 100%)"}}/>
+                <div style={{fontWeight:800,fontSize:14,marginBottom:4}}>{selected.name}</div>
+                <div style={{fontSize:12,color:C.txtSub,marginBottom:8}}>📍 {selected.city}</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                  <Pill trade={selected.trade}/>
+                  <span style={{background:jc.bg,color:jc.dot,border:`1px solid ${jc.dot}40`,
+                    borderRadius:20,padding:"3px 9px",fontSize:11,fontWeight:700,
+                    textTransform:"capitalize"}}>{jc.label}</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  <div style={{background:C.surface,borderRadius:7,padding:"7px 9px"}}>
+                    <div style={{fontSize:10,color:C.txtSub}}>Budget</div>
+                    <div style={{fontSize:13,fontWeight:700,color:C.accent}}>{selected.budget}</div>
+                  </div>
+                  <div style={{background:C.surface,borderRadius:7,padding:"7px 9px"}}>
+                    <div style={{fontSize:10,color:C.txtSub}}>Openings</div>
+                    <div style={{fontSize:13,fontWeight:700,color:C.blue}}>{selected.openings}</div>
+                  </div>
+                </div>
+                <button onClick={()=>setSelected(null)}
+                  style={{position:"absolute",top:8,right:10,background:"none",border:"none",
+                    color:C.txtSub,cursor:"pointer",fontSize:16,fontFamily:"'IBM Plex Sans',sans-serif"}}>✕</button>
+              </div>
+            );
+          })()}
+
+          {/* Legend */}
+          <div style={{position:"absolute",bottom:16,left:16,background:C.card+"EE",
+            border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px"}}>
+            <div style={{fontSize:10,color:C.txtSub,fontWeight:700,textTransform:"uppercase",
+              letterSpacing:"0.07em",marginBottom:8}}>Legend</div>
+            {Object.entries(JOB_TYPE_COLOR).map(([type,jc])=>(
+              <div key={type} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
+                <div style={{width:10,height:10,borderRadius:"50%",background:jc.dot,flexShrink:0}}/>
+                <span style={{fontSize:11,color:C.txtSub,textTransform:"capitalize"}}>{jc.label}</span>
+              </div>
+            ))}
+            <div style={{display:"flex",alignItems:"center",gap:7,marginTop:2}}>
+              <div style={{width:16,height:10,borderRadius:2,background:C.blue+"60",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:8,color:"#fff",fontWeight:800}}>3</div>
+              <span style={{fontSize:11,color:C.txtSub}}>Open roles count</span>
+            </div>
+          </div>
+
+          {/* Tap to dismiss */}
+          {selected&&<div style={{position:"absolute",inset:0,zIndex:5}}
+            onClick={()=>setSelected(null)}/>}
+        </div>
+      ) : (
+        // ── LIST VIEW ──
+        <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"14px 18px 110px"}}>
+          {filtered.length===0&&<div style={{textAlign:"center",padding:"48px 0",color:C.txtSub}}>
+            <div style={{fontSize:36,marginBottom:10}}>🗺️</div>
+            <div style={{fontSize:15}}>No jobs match your filters</div>
+          </div>}
+          {filtered.map(job=>{
+            const jc=JOB_TYPE_COLOR[job.type];
+            const t=getTrade(job.trade);
+            return <div key={job.id}
+              style={{background:C.card,border:`1.5px solid ${t.color}25`,borderRadius:14,
+                padding:"14px 16px",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div style={{flex:1,marginRight:10}}>
+                  <div style={{fontWeight:800,fontSize:15}}>{job.name}</div>
+                  <div style={{fontSize:12,color:C.txtSub,marginTop:2}}>📍 {job.city}</div>
+                </div>
+                <span style={{background:jc.bg,color:jc.dot,border:`1px solid ${jc.dot}40`,
+                  borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,
+                  textTransform:"capitalize",flexShrink:0}}>{jc.label}</span>
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                <Pill trade={job.trade}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div style={{background:C.surface,borderRadius:8,padding:"8px 10px"}}>
+                  <div style={{fontSize:10,color:C.txtSub}}>Budget</div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.accent,marginTop:1}}>{job.budget}</div>
+                </div>
+                <div style={{background:C.surface,borderRadius:8,padding:"8px 10px"}}>
+                  <div style={{fontSize:10,color:C.txtSub}}>Open Roles</div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.blue,marginTop:1}}>{job.openings}</div>
+                </div>
+              </div>
+            </div>;
+          })}
+        </div>
+      )}
+    </div>
+
+    <style>{`
+      @keyframes pulse {
+        0%,100%{transform:scale(1);opacity:0.6;}
+        50%{transform:scale(1.3);opacity:0.2;}
+      }
+    `}</style>
+  </div>;
+}
+
+// ─── NAV ──────────────────────────────────────────────────────────────────────
+const GC_NAV=[{id:"dashboard",icon:"📊",label:"Home"},{id:"projects",icon:"🏗️",label:"Projects"},{id:"openings",icon:"📋",label:"Openings"},{id:"applicants",icon:"👷",label:"Applicants"},{id:"messages",icon:"💬",label:"Messages"}];
+const GC_MORE=[{id:"calendar",icon:"📅",label:"Calendar"},{id:"heatmap",icon:"🗺️",label:"Job Map"},{id:"paytracker",icon:"💰",label:"Pay"},{id:"dailylog",icon:"📋",label:"Logs"},{id:"changeorders",icon:"📝",label:"Changes"},{id:"forecast",icon:"📊",label:"Forecast"},{id:"admin",icon:"🛡️",label:"Admin"},{id:"pricing",icon:"💳",label:"Plans"}];
+const SUB_NAV=[{id:"findwork",icon:"🔍",label:"Find Work"},{id:"heatmap",icon:"🗺️",label:"Job Map"},{id:"messages",icon:"💬",label:"Messages"},{id:"profile",icon:"👤",label:"Profile"},{id:"pricing",icon:"💳",label:"Plans"}];
+const SUB_MORE=[{id:"paytracker",icon:"💰",label:"Pay"},{id:"dailylog",icon:"📋",label:"Logs"},{id:"changeorders",icon:"📝",label:"Changes"}];
+
+// ─── APP ROOT ─────────────────────────────────────────────────────────────────
+export default function App(){
+  // app stage: "onboarding" | "pending" | "app"
+  const[stage,setStage]=useState("onboarding");
+  // responsive layout — must be called unconditionally before any early returns
+  const { w } = useWindowSize();
+  const isDesktop = w >= BP.desktop;
+  const isTablet  = w >= BP.tablet;
+  const[mode,setMode]=useState("gc");
+  const[lic,setLic]=useState("CGC");
+  const[plan,setPlan]=useState("starter"); // starter | builder | pro | free | pro_sub
+  const[verified,setVerified]=useState(false);
+  const[page,setPage]=useState("dashboard");
+  const[toast,setToast]=useState(null);
+  const[modeMenu,setModeMenu]=useState(false);
+  const[moreMenu,setMoreMenu]=useState(false);
+  const[upgradeGate,setUpgradeGate]=useState(null); // gate key to show upgrade modal for
+
+  function showToast(msg,color){setToast({msg,color:color||C.accent});setTimeout(()=>setToast(null),2500);}
+  function switchMode(m){setMode(m);setPage(m==="gc"?"dashboard":"findwork");setModeMenu(false);setMoreMenu(false);}
+
+  // Called when onboarding completes
+  function onObComplete({mode:m,lic:l,plan:p,verified:v}){
+    setMode(m);if(l)setLic(l);setPlan(p);setVerified(v);
+    setStage("pending");
+  }
+
+  // Called from pending screen
+  function onPendingContinue(isApproved){
+    setVerified(isApproved);
+    setStage("app");
+    setPage(mode==="gc"?"dashboard":"findwork");
+  }
+
+  // Check if user can access a feature; if not, show upgrade gate
+  function requirePlan(gateKey) {
+    const gate = GATES[gateKey];
+    if (!gate) return true;
+    if (canAccess(plan, gate.plan)) return true;
+    setUpgradeGate(gateKey);
+    return false;
+  }
+
+  const nav=mode==="gc"?GC_NAV:SUB_NAV;
+  const fh=["messages","profile","admin","pricing","heatmap","paytracker","dailylog","changeorders","forecast"].includes(page)||(page==="projects"&&mode==="gc")||(page==="applicants"&&mode==="gc");
+
+  function render(){
+    if(mode==="gc"){
+      if(page==="dashboard") return <DashPage lic={lic} setPage={setPage} plan={plan} requirePlan={requirePlan}/>;
+      if(page==="projects")  return <ProjPage lic={lic}/>;
+      if(page==="openings")  return <OpenPage lic={lic}/>;
+      if(page==="applicants")return <AppPage plan={plan} requirePlan={requirePlan}/>;
+      if(page==="messages")  return <MsgPage/>;
+      if(page==="calendar")  return <CalPage isGC={true} plan={plan} requirePlan={requirePlan}/>;
+      if(page==="admin")     return <AdminPage/>;
+      if(page==="heatmap")   return <HeatmapPage mode="gc"/>;
+      if(page==="paytracker") return <PayTrackerPage mode="gc" plan={plan} requirePlan={requirePlan} setPage={setPage}/>;
+      if(page==="dailylog")   return <DailyLogPage mode="gc" plan={plan} requirePlan={requirePlan}/>;
+      if(page==="changeorders") return <ChangeOrderPage mode="gc" plan={plan} requirePlan={requirePlan}/>;
+      if(page==="forecast")   return <CrewForecastPage plan={plan} requirePlan={requirePlan}/>;
+      if(page==="pricing")   return <PricePage isGC={true} plan={plan} onUpgrade={p=>{setPlan(p);showToast(`✓ Upgraded to ${p}`,C.accent);}}/>;
+      return <DashPage lic={lic} setPage={setPage} plan={plan} requirePlan={requirePlan}/>;
+    }
+    if(page==="heatmap") return <HeatmapPage mode="sub"/>;
+    if(page==="paytracker") return <PayTrackerPage mode="sub" plan={plan} requirePlan={requirePlan} setPage={setPage}/>;
+    if(page==="dailylog")   return <DailyLogPage mode="sub" plan={plan} requirePlan={requirePlan}/>;
+    if(page==="changeorders") return <ChangeOrderPage mode="sub" plan={plan} requirePlan={requirePlan}/>;
+    if(page==="findwork") return <FWPage plan={plan} requirePlan={requirePlan}/>;
+    if(page==="calendar") return <CalPage isGC={false} plan={plan} requirePlan={requirePlan}/>;
+    if(page==="messages") return <MsgPage/>;
+    if(page==="profile")  return <ProfilePage plan={plan} requirePlan={requirePlan}/>;
+    if(page==="pricing")  return <PricePage isGC={false} plan={plan} onUpgrade={p=>{setPlan(p);showToast(`✓ Upgraded to ${p}`,C.accent);}}/>;
+    return <FWPage plan={plan} requirePlan={requirePlan}/>;
+  }
+
+  // ── ONBOARDING ──
+  if(stage==="onboarding") return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+        html,body{background:${C.bg};height:100%;}
+        *{-webkit-tap-highlight-color:transparent;}
+        ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
+        button{transition:opacity 0.12s;}button:hover{opacity:0.87;}
+      `}</style>
+      <OnboardingFlow onComplete={onObComplete}/>
+    </>
+  );
+
+  // ── PENDING ──
+  if(stage==="pending") return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+        html,body{background:${C.bg};height:100%;}
+        *{-webkit-tap-highlight-color:transparent;}
+        button{transition:opacity 0.12s;}button:hover{opacity:0.87;}
+      `}</style>
+      <PendingScreen userType={mode} onApprove={onPendingContinue}/>
+    </>
+  );
+
+  // ── MAIN APP ──
+
+  // All nav items flat for sidebar
+  const allGCNav  = [...GC_NAV, ...GC_MORE];
+  const allSubNav = [...SUB_NAV, ...SUB_MORE];
+  const sidebarNav = mode === "gc" ? allGCNav : allSubNav;
+
+  return <>
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap');
+      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+      html,body{background:${C.bg};height:100%;overflow:hidden;}
+      *{-webkit-tap-highlight-color:transparent;}
+      ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
+      button{transition:opacity 0.12s;}button:hover{opacity:0.87;}
+      textarea{scrollbar-width:none;}textarea::-webkit-scrollbar{display:none;}
+      .tap-card{transition:background 0.1s;}
+      .tap-card:active{filter:brightness(1.15);}
+    `}</style>
+
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",
+      background:C.bg,fontFamily:"'IBM Plex Sans',sans-serif",color:C.txt}}>
+
+      <Toast t={toast}/>
+
+      {upgradeGate&&<UpgradeModal
+        gate={upgradeGate} userPlan={plan} isGC={mode==="gc"}
+        onClose={()=>setUpgradeGate(null)}
+        onUpgrade={()=>{setPage("pricing");setUpgradeGate(null);}}
+      />}
+
+      {/* Unverified banner */}
+      {!verified&&<div style={{background:C.amberDim,borderBottom:`1px solid ${C.amber}30`,
+        padding:"8px 20px",display:"flex",gap:10,alignItems:"center",flexShrink:0,zIndex:30}}>
+        <span style={{fontSize:14}}>⏳</span>
+        <div style={{flex:1,fontSize:12,color:C.amber,fontWeight:600}}>
+          Verification pending — read-only mode. Some actions are disabled.
+        </div>
+        <button onClick={()=>setVerified(true)}
+          style={{background:C.amber,color:"#000",border:"none",borderRadius:7,
+            padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",
+            fontFamily:"'IBM Plex Sans',sans-serif",flexShrink:0}}>Demo: Approve</button>
+      </div>}
+
+      {/* ── TOP BAR ── */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,
+        padding:`0 ${isDesktop?28:18}px`,height:isDesktop?60:56,
+        display:"flex",alignItems:"center",justifyContent:"space-between",
+        flexShrink:0,zIndex:20}}>
+
+        {/* Logo */}
+        <div style={{display:"flex",alignItems:"center",gap:isDesktop?16:0}}>
+          <div style={{fontWeight:800,fontSize:isDesktop?20:18,color:C.accent,
+            letterSpacing:"-0.02em",marginRight:isDesktop?0:0}}>⚡ SubNet</div>
+          {isDesktop&&<div style={{width:1,height:20,background:C.border,margin:"0 8px"}}/>}
+          {isDesktop&&<div style={{fontSize:13,color:C.txtSub,fontWeight:500}}>
+            {mode==="gc"?"General Contractor Dashboard":"Subcontractor Portal"}
+          </div>}
+        </div>
+
+        {/* Right controls */}
+        <div style={{display:"flex",alignItems:"center",gap:isDesktop?12:8}}>
+          {mode==="gc"&&<div style={{display:"flex",background:C.card,
+            border:`1px solid ${C.border}`,borderRadius:20,padding:3,gap:2}}>
+            {["CGC","CRC"].map(l=>(
+              <button key={l} onClick={()=>setLic(l)}
+                style={{background:lic===l?LIC[l].color:"transparent",
+                  color:lic===l?"#000":C.txtSub,border:"none",borderRadius:14,
+                  padding:isDesktop?"6px 16px":"5px 12px",fontWeight:700,
+                  fontSize:isDesktop?12:11,cursor:"pointer",
+                  fontFamily:"'IBM Plex Sans',sans-serif"}}>{l}</button>
+            ))}
+          </div>}
+
+          {/* Mode switcher */}
+          <div style={{position:"relative"}}>
+            <button onClick={()=>{setModeMenu(!modeMenu);setMoreMenu(false);}}
+              style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,
+                padding:isDesktop?"8px 14px":"7px 12px",
+                display:"flex",alignItems:"center",gap:6,cursor:"pointer",
+                fontFamily:"'IBM Plex Sans',sans-serif"}}>
+              <span style={{fontSize:14}}>{mode==="gc"?"🏢":"🔧"}</span>
+              <span style={{fontSize:isDesktop?13:12,fontWeight:700,color:C.txtSub}}>
+                {mode==="gc"?"GC":"Sub"}
+              </span>
+              <span style={{fontSize:10,color:C.txtSub}}>▾</span>
+            </button>
+            {modeMenu&&<div style={{position:"absolute",top:"calc(100% + 6px)",right:0,
+              background:C.card,border:`1px solid ${C.border}`,borderRadius:12,
+              padding:6,zIndex:300,minWidth:180,boxShadow:"0 8px 24px #00000060"}}>
+              {[["gc","🏢","General Contractor"],["sub","🔧","Subcontractor"]].map(([m,ic,lb])=>(
+                <button key={m} onPointerDown={e=>{e.stopPropagation();switchMode(m);}}
+                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",
+                    background:mode===m?C.accentDim:"transparent",
+                    color:mode===m?C.accent:C.txt,border:"none",borderRadius:8,
+                    padding:"10px 14px",cursor:"pointer",fontSize:14,fontWeight:600,
+                    fontFamily:"'IBM Plex Sans',sans-serif",textAlign:"left"}}>
+                  <span>{ic}</span>{lb}
+                  {mode===m&&<span style={{marginLeft:"auto",color:C.accent}}>✓</span>}
+                </button>
+              ))}
+            </div>}
+          </div>
+
+          {/* Verified / plan badge */}
+          <div style={{background:verified?C.greenDim:C.amberDim,
+            border:`1px solid ${verified?C.green+"30":C.amber+"30"}`,
+            borderRadius:8,padding:isDesktop?"6px 14px":"5px 10px",
+            display:"flex",alignItems:"center",gap:5}}>
+            <span style={{color:verified?C.green:C.amber,fontSize:12}}>
+              {verified?"✓":"⏳"}
+            </span>
+            <span style={{fontSize:isDesktop?12:11,fontWeight:700,
+              color:verified?C.green:C.amber}}>
+              {verified?"Verified":plan.toUpperCase()}
+            </span>
+          </div>
+
+          {/* Desktop: user avatar placeholder */}
+          {isDesktop&&<div style={{width:34,height:34,borderRadius:"50%",
+            background:C.accentDim,border:`1.5px solid ${C.accent}40`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:16,cursor:"pointer"}}>
+            {mode==="gc"?"🏢":"🔧"}
+          </div>}
+        </div>
+      </div>
+
+      {/* ── BODY: sidebar + content ── */}
+      <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"row"}}>
+
+        {/* ── SIDEBAR (desktop only) ── */}
+        {isDesktop&&<div style={{width:220,background:C.surface,
+          borderRight:`1px solid ${C.border}`,
+          display:"flex",flexDirection:"column",
+          flexShrink:0,overflowY:"auto"}}>
+
+          {/* Nav group label */}
+          <div style={{padding:"20px 18px 8px"}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.txtSub,
+              textTransform:"uppercase",letterSpacing:"0.1em"}}>
+              {mode==="gc"?"Workspace":"My Account"}
+            </div>
+          </div>
+
+          {/* Primary nav items */}
+          {(mode==="gc"?GC_NAV:SUB_NAV).map(item=>{
+            const active=page===item.id;
+            return(
+              <button key={item.id}
+                onPointerDown={()=>{setPage(item.id);setMoreMenu(false);setModeMenu(false);}}
+                style={{display:"flex",alignItems:"center",gap:12,
+                  background:active?C.accentDim:"transparent",
+                  color:active?C.accent:C.txtSub,border:"none",
+                  padding:"11px 18px",cursor:"pointer",fontSize:14,fontWeight:active?700:500,
+                  fontFamily:"'IBM Plex Sans',sans-serif",textAlign:"left",
+                  borderLeft:`3px solid ${active?C.accent:"transparent"}`,
+                  transition:"all 0.1s"}}>
+                <span style={{fontSize:18,width:22,textAlign:"center"}}>{item.icon}</span>
+                {item.label}
+              </button>
+            );
+          })}
+
+          {/* Secondary nav group */}
+          <div style={{padding:"16px 18px 8px",marginTop:8,
+            borderTop:`1px solid ${C.border}`}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.txtSub,
+              textTransform:"uppercase",letterSpacing:"0.1em"}}>
+              {mode==="gc"?"Tools & More":"Tools"}
+            </div>
+          </div>
+
+          {(mode==="gc"?GC_MORE:SUB_MORE).map(item=>{
+            const active=page===item.id;
+            return(
+              <button key={item.id}
+                onPointerDown={()=>{setPage(item.id);setMoreMenu(false);setModeMenu(false);}}
+                style={{display:"flex",alignItems:"center",gap:12,
+                  background:active?C.accentDim:"transparent",
+                  color:active?C.accent:C.txtSub,border:"none",
+                  padding:"10px 18px",cursor:"pointer",fontSize:13,fontWeight:active?700:500,
+                  fontFamily:"'IBM Plex Sans',sans-serif",textAlign:"left",
+                  borderLeft:`3px solid ${active?C.accent:"transparent"}`,
+                  transition:"all 0.1s"}}>
+                <span style={{fontSize:16,width:22,textAlign:"center"}}>{item.icon}</span>
+                {item.label}
+              </button>
+            );
+          })}
+
+          {/* Sidebar plan pill */}
+          <div style={{margin:"auto 14px 20px",marginTop:"auto"}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,
+              borderRadius:12,padding:"12px 14px"}}>
+              <div style={{fontSize:11,color:C.txtSub,marginBottom:4}}>Current Plan</div>
+              <div style={{fontWeight:800,fontSize:14,color:C.accent,marginBottom:8}}>
+                {plan.toUpperCase()}
+              </div>
+              <button onPointerDown={()=>setPage("pricing")}
+                style={{width:"100%",background:C.accent,color:"#000",border:"none",
+                  borderRadius:8,padding:"8px",fontSize:12,fontWeight:700,cursor:"pointer",
+                  fontFamily:"'IBM Plex Sans',sans-serif"}}>
+                {plan==="pro"||plan==="pro_sub"?"Manage Plan ↗":"Upgrade →"}
+              </button>
+            </div>
+          </div>
+        </div>}
+
+        {/* ── MAIN CONTENT ── */}
+        <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",
+          maxWidth:isDesktop?"none":900,margin:isDesktop?"0":"0 auto",width:"100%"}}>
+          {fh
+            ?<div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+               {render()}
+             </div>
+            :<div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+               {render()}
+             </div>}
+        </div>
+      </div>
+
+      {/* ── BOTTOM NAV (mobile + tablet only) ── */}
+      {!isDesktop&&<div style={{background:C.surface,borderTop:`1px solid ${C.border}`,
+        display:"flex",paddingBottom:"env(safe-area-inset-bottom,6px)",
+        flexShrink:0,zIndex:20,overflow:"visible"}}>
+        {nav.map(item=>{
+          const active=page===item.id;
+          return(
+            <button key={item.id}
+              onPointerDown={()=>{setPage(item.id);setMoreMenu(false);setModeMenu(false);}}
+              style={{flex:1,background:"none",border:"none",cursor:"pointer",
+                padding:"9px 4px 5px",display:"flex",flexDirection:"column",
+                alignItems:"center",gap:2,WebkitTapHighlightColor:"transparent"}}>
+              <span style={{fontSize:20}}>{item.icon}</span>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.02em",
+                color:active?C.accent:C.txtMuted,
+                fontFamily:"'IBM Plex Sans',sans-serif"}}>{item.label}</span>
+              {active&&<div style={{width:18,height:2.5,borderRadius:2,
+                background:C.accent,marginTop:1}}/>}
+            </button>
+          );
+        })}
+
+        {/* Sub More */}
+        {mode==="sub"&&<div style={{position:"relative",flex:1,overflow:"visible"}}>
+          <button onPointerDown={()=>{setMoreMenu(v=>!v);setModeMenu(false);}}
+            style={{width:"100%",background:"none",border:"none",cursor:"pointer",
+              padding:"9px 4px 5px",display:"flex",flexDirection:"column",
+              alignItems:"center",gap:2,WebkitTapHighlightColor:"transparent"}}>
+            <span style={{fontSize:20}}>⋯</span>
+            <span style={{fontSize:9,fontWeight:700,
+              color:SUB_MORE.some(n=>n.id===page)?C.accent:C.txtSub,
+              fontFamily:"'IBM Plex Sans',sans-serif"}}>Tools</span>
+            {SUB_MORE.some(n=>n.id===page)&&
+              <div style={{width:18,height:2.5,borderRadius:2,background:C.accent,marginTop:1}}/>}
+          </button>
+          {moreMenu&&<div style={{position:"fixed",bottom:64,right:8,background:C.card,
+            border:`1px solid ${C.border}`,borderRadius:14,padding:8,zIndex:300,
+            minWidth:180,boxShadow:"0 -4px 32px #000000AA"}}>
+            {SUB_MORE.map(item=>(
+              <button key={item.id}
+                onPointerDown={e=>{e.stopPropagation();setPage(item.id);setMoreMenu(false);}}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",
+                  background:page===item.id?C.accentDim:"transparent",
+                  color:page===item.id?C.accent:C.txt,border:"none",borderRadius:8,
+                  padding:"13px 16px",cursor:"pointer",fontSize:15,fontWeight:600,
+                  fontFamily:"'IBM Plex Sans',sans-serif",textAlign:"left"}}>
+                <span style={{fontSize:20}}>{item.icon}</span>{item.label}
+              </button>
+            ))}
+          </div>}
+        </div>}
+
+        {/* GC More */}
+        {mode==="gc"&&<div style={{position:"relative",flex:1,overflow:"visible"}}>
+          <button onPointerDown={()=>{setMoreMenu(v=>!v);setModeMenu(false);}}
+            style={{width:"100%",background:"none",border:"none",cursor:"pointer",
+              padding:"9px 4px 5px",display:"flex",flexDirection:"column",
+              alignItems:"center",gap:2,WebkitTapHighlightColor:"transparent"}}>
+            <span style={{fontSize:20}}>⋯</span>
+            <span style={{fontSize:9,fontWeight:700,
+              color:GC_MORE.some(n=>n.id===page)?C.accent:C.txtSub,
+              fontFamily:"'IBM Plex Sans',sans-serif"}}>More</span>
+            {GC_MORE.some(n=>n.id===page)&&
+              <div style={{width:18,height:2.5,borderRadius:2,background:C.accent,marginTop:1}}/>}
+          </button>
+          {moreMenu&&<div style={{position:"fixed",bottom:64,right:8,background:C.card,
+            border:`1px solid ${C.border}`,borderRadius:14,padding:8,zIndex:300,
+            minWidth:180,boxShadow:"0 -4px 32px #000000AA"}}>
+            {GC_MORE.map(item=>(
+              <button key={item.id}
+                onPointerDown={e=>{e.stopPropagation();setPage(item.id);setMoreMenu(false);}}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",
+                  background:page===item.id?C.accentDim:"transparent",
+                  color:page===item.id?C.accent:C.txt,border:"none",borderRadius:8,
+                  padding:"13px 16px",cursor:"pointer",fontSize:15,fontWeight:600,
+                  fontFamily:"'IBM Plex Sans',sans-serif",textAlign:"left"}}>
+                <span style={{fontSize:20}}>{item.icon}</span>{item.label}
+              </button>
+            ))}
+          </div>}
+        </div>}
+      </div>}
+    </div>
+  </>;
+}
